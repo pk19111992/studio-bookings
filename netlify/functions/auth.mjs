@@ -1,9 +1,8 @@
 // netlify/functions/auth.mjs
-// Handles: Google OAuth initiation, OAuth callback, password login, token verify, logout
 
 import { neon } from "@netlify/neon";
 
-const sql = neon(process.env.DATABASE_URL);
+const sql = neon(); // automatically uses NETLIFY_DATABASE_URL
 
 const GOOGLE_CLIENT_ID     = process.env.GOOGLE_CLIENT_ID;
 const GOOGLE_CLIENT_SECRET = process.env.GOOGLE_CLIENT_SECRET;
@@ -17,7 +16,6 @@ const CORS = {
   "Content-Type": "application/json",
 };
 
-// ── Minimal JWT (HS256) without external deps ─────────────────────────────────
 function base64url(str) {
   return btoa(str).replace(/\+/g,"-").replace(/\//g,"_").replace(/=/g,"");
 }
@@ -44,13 +42,11 @@ async function verifyJWT(token) {
   return payload;
 }
 
-// ── Simple password hash (SHA-256) ───────────────────────────────────────────
 async function hashPassword(password) {
   const buf = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(password + JWT_SECRET));
   return Array.from(new Uint8Array(buf)).map(b => b.toString(16).padStart(2,"0")).join("");
 }
 
-// ── DB setup ─────────────────────────────────────────────────────────────────
 async function ensureTables() {
   await sql`
     CREATE TABLE IF NOT EXISTS users (
@@ -74,7 +70,6 @@ export default async function handler(req) {
   try {
     await ensureTables();
 
-    // ── Verify token (used by frontend on load) ───────────────────────────
     if (action === "verify") {
       const auth = req.headers.get("Authorization") || "";
       const token = auth.replace("Bearer ","");
@@ -83,33 +78,26 @@ export default async function handler(req) {
       return new Response(JSON.stringify({ user: payload }), { headers:CORS });
     }
 
-    // ── Password login ────────────────────────────────────────────────────
     if (action === "login" && req.method === "POST") {
       const { email, password } = await req.json();
       if (!email || !password) return new Response(JSON.stringify({ error:"Email and password required" }), { status:400, headers:CORS });
-
       const hash  = await hashPassword(password);
       const users = await sql`SELECT * FROM users WHERE email=${email.toLowerCase()} AND password_hash=${hash} AND provider='password'`;
       if (!users.length) return new Response(JSON.stringify({ error:"Invalid email or password" }), { status:401, headers:CORS });
-
       const user  = users[0];
       const token = await signJWT({ sub:user.id, email:user.email, name:user.name, avatar:user.avatar, exp: Math.floor(Date.now()/1000) + 86400*7 });
       return new Response(JSON.stringify({ token, user:{ id:user.id, email:user.email, name:user.name, avatar:user.avatar } }), { headers:CORS });
     }
 
-    // ── Password register (first-time / admin creates users) ─────────────
     if (action === "register" && req.method === "POST") {
       const { email, password, name } = await req.json();
       if (!email || !password) return new Response(JSON.stringify({ error:"Email and password required" }), { status:400, headers:CORS });
-
-      // Check if any user exists — first user becomes admin freely; after that, require existing token
       const count = await sql`SELECT COUNT(*) as c FROM users`;
       if (parseInt(count[0].c) > 0) {
         const auth = req.headers.get("Authorization")||"";
         try { await verifyJWT(auth.replace("Bearer ","")); }
         catch { return new Response(JSON.stringify({ error:"Only existing users can add new users" }), { status:403, headers:CORS }); }
       }
-
       const id   = crypto.randomUUID();
       const hash = await hashPassword(password);
       try {
@@ -122,9 +110,8 @@ export default async function handler(req) {
       return new Response(JSON.stringify({ token, user:{ id, email:email.toLowerCase(), name:name||email } }), { headers:CORS });
     }
 
-    // ── Google OAuth — Step 1: redirect to Google ─────────────────────────
     if (action === "google") {
-      if (!GOOGLE_CLIENT_ID) return new Response(JSON.stringify({ error:"Google OAuth not configured" }), { status:500, headers:CORS });
+      if (!GOOGLE_CLIENT_ID) return new Response(JSON.stringify({ error:"Google OAuth not configured. Set GOOGLE_CLIENT_ID in Netlify env vars." }), { status:500, headers:CORS });
       const params = new URLSearchParams({
         client_id:     GOOGLE_CLIENT_ID,
         redirect_uri:  `${SITE_URL}/api/auth?action=callback`,
@@ -136,12 +123,9 @@ export default async function handler(req) {
       return Response.redirect(`https://accounts.google.com/o/oauth2/v2/auth?${params}`);
     }
 
-    // ── Google OAuth — Step 2: handle callback ────────────────────────────
     if (action === "callback") {
       const code = url.searchParams.get("code");
       if (!code) return Response.redirect(`${SITE_URL}?error=oauth_denied`);
-
-      // Exchange code for tokens
       const tokenRes = await fetch("https://oauth2.googleapis.com/token", {
         method: "POST",
         headers: { "Content-Type":"application/x-www-form-urlencoded" },
@@ -152,12 +136,8 @@ export default async function handler(req) {
       });
       const tokenData = await tokenRes.json();
       if (!tokenData.access_token) return Response.redirect(`${SITE_URL}?error=oauth_failed`);
-
-      // Get user info
       const infoRes  = await fetch("https://www.googleapis.com/oauth2/v2/userinfo", { headers: { Authorization:`Bearer ${tokenData.access_token}` } });
       const info     = await infoRes.json();
-
-      // Upsert user in DB
       const existing = await sql`SELECT * FROM users WHERE email=${info.email}`;
       let userId;
       if (existing.length) {
@@ -167,9 +147,7 @@ export default async function handler(req) {
         userId = crypto.randomUUID();
         await sql`INSERT INTO users (id,email,name,avatar,provider) VALUES (${userId},${info.email},${info.name},${info.picture},'google')`;
       }
-
       const jwt = await signJWT({ sub:userId, email:info.email, name:info.name, avatar:info.picture, exp: Math.floor(Date.now()/1000)+86400*7 });
-      // Redirect back to app with token in hash (never in query string)
       return Response.redirect(`${SITE_URL}/#token=${jwt}`);
     }
 

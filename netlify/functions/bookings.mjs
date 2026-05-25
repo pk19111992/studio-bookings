@@ -2,7 +2,7 @@
 
 import { neon } from "@netlify/neon";
 
-const sql = neon(process.env.DATABASE_URL);
+const sql = neon(); // automatically uses NETLIFY_DATABASE_URL
 const JWT_SECRET = process.env.JWT_SECRET || "change-me-in-production";
 
 const CORS = {
@@ -56,7 +56,6 @@ async function ensureTables() {
       created_at TIMESTAMPTZ DEFAULT NOW()
     )
   `;
-  // Seed default units if empty
   const existing = await sql`SELECT id FROM units LIMIT 1`;
   if (!existing.length) {
     await sql`INSERT INTO units (id,name,location) VALUES
@@ -77,13 +76,11 @@ export default async function handler(req) {
     const action = url.searchParams.get("action") || "bookings";
     const method = req.method;
 
-    // ── GET units list ────────────────────────────────────────────────────
     if (action === "units" && method === "GET") {
       const units = await sql`SELECT * FROM units ORDER BY location, name`;
       return new Response(JSON.stringify(units), { headers:CORS });
     }
 
-    // ── POST add unit ─────────────────────────────────────────────────────
     if (action === "units" && method === "POST") {
       const { name, location } = await req.json();
       const id = "unit-" + crypto.randomUUID().slice(0,8);
@@ -92,7 +89,6 @@ export default async function handler(req) {
       return new Response(JSON.stringify(units), { headers:CORS });
     }
 
-    // ── GET bookings for a unit ───────────────────────────────────────────
     if (action === "bookings" && method === "GET") {
       const unitId = url.searchParams.get("unit_id");
       if (!unitId) return new Response(JSON.stringify({ error:"unit_id required" }), { status:400, headers:CORS });
@@ -100,7 +96,6 @@ export default async function handler(req) {
       return new Response(JSON.stringify(rows), { headers:CORS });
     }
 
-    // ── POST upsert booking ───────────────────────────────────────────────
     if (action === "bookings" && method === "POST") {
       const b = await req.json();
       await sql`
@@ -120,7 +115,6 @@ export default async function handler(req) {
       return new Response(JSON.stringify({ ok:true }), { headers:CORS });
     }
 
-    // ── DELETE booking ────────────────────────────────────────────────────
     if (action === "bookings" && method === "DELETE") {
       const id = url.searchParams.get("id");
       if (!id) return new Response(JSON.stringify({ error:"id required" }), { status:400, headers:CORS });
@@ -131,7 +125,7 @@ export default async function handler(req) {
     return new Response(JSON.stringify({ error:"Not found" }), { status:404, headers:CORS });
 
   } catch(err) {
-    const status = err.message === "Unauthorized" || err.message === "Invalid token" || err.message === "Token expired" ? 401 : 500;
+    const status = ["Unauthorized","Invalid token","Token expired"].includes(err.message) ? 401 : 500;
     return new Response(JSON.stringify({ error:err.message }), { status, headers:CORS });
   }
 }
