@@ -75,6 +75,8 @@ const API2 = {
   login:           (e,p)        => apiFetch("/auth?action=login",           { method:"POST", body:JSON.stringify({email:e,password:p}) }),
   register:        (e,p,n)      => apiFetch("/auth?action=register",        { method:"POST", body:JSON.stringify({email:e,password:p,name:n}) }),
   googleUrl:       ()           => `${API}/auth?action=google`,
+  updateProfile:   (data)       => apiFetch("/auth?action=profile",         { method:"PATCH", body:JSON.stringify(data) }),
+  changePassword:  (cur,nw)     => apiFetch("/auth?action=change-password", { method:"POST",  body:JSON.stringify({currentPassword:cur,newPassword:nw}) }),
   allUsers:        ()           => apiFetch("/bookings?action=users"),
   units:           ()           => apiFetch("/bookings?action=units"),
   addUnit:         (n,l)        => apiFetch("/bookings?action=units",        { method:"POST", body:JSON.stringify({name:n,location:l}) }),
@@ -85,9 +87,12 @@ const API2 = {
   syncICal:        (uid)        => apiFetch("/bookings?action=sync_channels", { method:"POST", body: JSON.stringify({ unit_id: uid }) }),
   upsert:          (b)          => apiFetch("/bookings?action=bookings",     { method:"POST", body:JSON.stringify(b) }),
   deleteBooking:   (id)         => apiFetch(`/bookings?action=bookings&id=${id}`, { method:"DELETE" }),
+  getPerms:        (uid)        => apiFetch(`/bookings?action=permissions&unit_id=${encodeURIComponent(uid)}`),
+  grantPerm:       (uid,userId) => apiFetch("/bookings?action=permissions",  { method:"POST", body:JSON.stringify({unit_id:uid,user_id:userId}) }),
+  revokePerm:      (uid,userId) => apiFetch(`/bookings?action=permissions&unit_id=${encodeURIComponent(uid)}&user_id=${userId}`, { method:"DELETE" }),
 };
 
-// ── CUSTOM STYLES FROM ORIGINAL UI ─────────────────────────────────────────────
+// ── STYLES FROM ORIGINAL UI ───────────────────────────────────────────────────
 const inp = { background:"rgba(255,255,255,0.05)", border:"1px solid rgba(255,255,255,0.1)", borderRadius:"8px", color:"#F0EEF8", padding:"10px 14px", fontSize:"13px", fontFamily:"'DM Mono', monospace", width:"100%", outline:"none", boxSizing:"border-box" };
 const lbl = { color:"rgba(255,255,255,0.45)", fontSize:"10px", fontFamily:"'DM Mono', monospace", letterSpacing:"0.1em", textTransform:"uppercase", display:"block", marginBottom:"5px" };
 const card = { background:"rgba(255,255,255,0.03)", border:"1px solid rgba(255,255,255,0.07)", borderRadius:"12px", padding:"16px" };
@@ -101,6 +106,128 @@ function Modal({ isOpen, onClose, children, wide }) {
           {children}
         </div>
       </div>
+  );
+}
+
+// ── PROFILE MODAL COMPONENT ───────────────────────────────────────────────────
+function ProfileModal({ user, onClose, onUpdate }) {
+  const [tab, setTab]           = useState("profile");
+  const [name, setName]         = useState(user.name||"");
+  const [bio, setBio]           = useState(user.bio||"");
+  const [phone, setPhone]       = useState(user.phone||"");
+  const [avatarUrl, setAvatarUrl] = useState(user.avatar||"");
+  const [saving, setSaving]     = useState(false);
+  const [msg, setMsg]           = useState({ text:"", type:"" });
+
+  const showMsg = (text, type="success") => {
+    setMsg({ text, type });
+    setTimeout(() => setMsg({ text:"", type:"" }), 3000);
+  };
+
+  const saveProfile = async () => {
+    if (!name.trim()) return showMsg("Name cannot be empty", "error");
+    setSaving(true);
+    try {
+      const res = await API2.updateProfile({ name:name.trim(), bio:bio.trim(), phone:phone.trim(), avatar:avatarUrl });
+      setToken(res.token);
+      onUpdate(res.user);
+      showMsg("Profile updated successfully ✓");
+    } catch(e) { showMsg(e.message, "error"); }
+    setSaving(false);
+  };
+
+  return (
+      <>
+        <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:"20px" }}>
+          <div style={{ color:"#F0EEF8", fontSize:"16px", fontFamily:"'Playfair Display', serif", fontWeight:700 }}>My Profile</div>
+          <button onClick={onClose} style={{ background:"rgba(255,255,255,0.06)", border:"none", borderRadius:"8px", color:"rgba(255,255,255,0.5)", cursor:"pointer", fontSize:"18px", width:"32px", height:"32px" }}>×</button>
+        </div>
+        <div style={{ display:"grid", gap:"14px" }}>
+          <div><label style={lbl}>Display Name</label><input style={inp} value={name} onChange={e=>setName(e.target.value)}/></div>
+          <div><label style={lbl}>Phone Number</label><input style={inp} value={phone} onChange={e=>setPhone(e.target.value)}/></div>
+          <div><label style={lbl}>Bio</label><textarea style={inp} value={bio} onChange={e=>setBio(e.target.value)}/></div>
+          <div><label style={lbl}>Avatar URL</label><input style={inp} value={avatarUrl} onChange={e=>setAvatarUrl(e.target.value)}/></div>
+          {msg.text && <div style={{ color: msg.type==="error"?"#FF7B7F":"#74C69D", fontSize:"12px" }}>{msg.text}</div>}
+          <button onClick={saveProfile} disabled={saving} style={{ padding:"11px", borderRadius:"8px", border:"none", background:"linear-gradient(135deg,#6E56CF,#9B7FE8)", color:"#fff", cursor:"pointer", fontWeight:700 }}>
+            {saving?"Saving…":"Save Profile"}
+          </button>
+        </div>
+      </>
+  );
+}
+
+// ── ADMIN PANEL COMPONENT ─────────────────────────────────────────────────────
+function AdminPanel({ units }) {
+  const [users, setUsers]       = useState([]);
+  const [selUnit, setSelUnit]   = useState(units[0]?.id||"");
+  const [perms, setPerms]       = useState([]);
+  const [loading, setLoading]   = useState(false);
+
+  useEffect(()=>{ API2.allUsers().then(setUsers).catch(()=>{}); },[]);
+  useEffect(()=>{ if(selUnit) API2.getPerms(selUnit).then(setPerms).catch(()=>{}); },[selUnit]);
+
+  const grant = async(userId)=>{
+    setLoading(true); await API2.grantPerm(selUnit,userId);
+    API2.getPerms(selUnit).then(setPerms); setLoading(false);
+  };
+  const revoke = async(userId)=>{
+    setLoading(true); await API2.revokePerm(selUnit,userId);
+    API2.getPerms(selUnit).then(setPerms); setLoading(false);
+  };
+
+  return (
+      <div style={{ padding:"20px 0" }}>
+        <div style={lbl}>Admin — Access Control Matrix</div>
+        <div style={{ display:"flex",gap:"8px",marginBottom:"20px",marginTop:"10px" }}>
+          {units.map(u=>(
+              <button key={u.id} onClick={()=>setSelUnit(u.id)} style={{ padding:"6px 16px",borderRadius:"20px",border:`1px solid ${selUnit===u.id?"#6E56CF":"rgba(255,255,255,0.1)"}`,background:selUnit===u.id?"rgba(110,86,207,0.2)":"transparent",color:"#fff",cursor:"pointer" }}>{u.name}</button>
+          ))}
+        </div>
+        <div style={card}>
+          <div style={{ display:"grid",gap:"10px" }}>
+            {users.filter(u=>u.role!=="admin").map(u=>{
+              const hasAccess = perms.some(p=>p.user_id===u.id);
+              return (
+                  <div key={u.id} style={{ display:"flex",justifyContent:"space-between",alignItems:"center",background:"rgba(255,255,255,0.02)",padding:"10px",borderRadius:"8px" }}>
+                    <div>
+                      <div style={{ color:"#fff",fontSize:"13px" }}>{u.name}</div>
+                      <div style={{ color:"rgba(255,255,255,0.3)",fontSize:"11px" }}>{u.email}</div>
+                    </div>
+                    <button onClick={()=>hasAccess?revoke(u.id):grant(u.id)} disabled={loading} style={{ padding:"6px 12px",borderRadius:"6px",border:"none",background:hasAccess?"rgba(255,90,95,0.2)":"rgba(110,86,207,0.2)",color:hasAccess?"#FF7B7F":"#C4B5FD",cursor:"pointer" }}>
+                      {hasAccess?"Revoke":"Grant Access"}
+                    </button>
+                  </div>
+              );
+            })}
+          </div>
+        </div>
+      </div>
+  );
+}
+
+// ── ADD PROPERTY UNIT MODAL COMPONENT ─────────────────────────────────────────
+function AddUnitModal({ onAdd, onClose }) {
+  const [name,setName]=useState("");
+  const [location,setLoc]=useState("");
+  const [saving,setSaving]=useState(false);
+  const handleAdd=async()=>{
+    if(!name.trim()) return;
+    setSaving(true); await onAdd(name.trim(),location.trim()); setSaving(false);
+  };
+  return (
+      <>
+        <div style={{ display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:"20px" }}>
+          <div style={{ color:"#F0EEF8",fontSize:"16px",fontFamily:"'Playfair Display', serif",fontWeight:700 }}>Add New Unit</div>
+          <button onClick={onClose} style={{ background:"transparent",border:"none",color:"#fff",fontSize:"18px" }}>×</button>
+        </div>
+        <div style={{ display:"grid",gap:"14px" }}>
+          <div><label style={lbl}>Unit Name</label><input style={inp} value={name} onChange={e=>setName(e.target.value)} placeholder="e.g. Unit 1627"/></div>
+          <div><label style={lbl}>Location</label><input style={inp} value={location} onChange={e=>setLoc(e.target.value)} placeholder="e.g. Gaur City Centre"/></div>
+        </div>
+        <div style={{ display:"flex",gap:"10px",marginTop:"20px" }}>
+          <button onClick={handleAdd} disabled={saving||!name.trim()} style={{ flex:1,padding:"10px",borderRadius:"8px",border:"none",background:"linear-gradient(135deg,#6E56CF,#9B7FE8)",color:"#fff",fontWeight:700 }}>Add Property Unit</button>
+        </div>
+      </>
   );
 }
 
@@ -133,7 +260,7 @@ function LoginPage({ onLogin }) {
               <div><label style={lbl}>Password</label><input style={inp} type="password" value={password} onChange={e=>setPassword(e.target.value)} placeholder="••••••••" onKeyDown={e=>e.key==="Enter"&&submit()}/></div>
             </div>
             {error&&<div style={{ color:"#FF7B7F",fontSize:"11px",marginTop:"12px",padding:"8px 12px",background:"rgba(255,90,95,0.1)",borderRadius:"6px",border:"1px solid rgba(255,90,95,0.2)" }}>⚠ {error}</div>}
-            <button onClick={submit} disabled={loading} style={{ padding:"11px",borderRadius:"8px",border:"none",background:"linear-gradient(135deg,#6E56CF,#9B7FE8)",color:"#fff",cursor:"pointer",fontWeight:700,fontFamily:"'DM Mono', monospace",fontSize:"12px",width:"100%",marginTop:"20px" }}>
+            <button onClick={submit} disabled={loading} style={{ padding:"11px",borderRadius:"8px",border:"none",background:"linear-gradient(135deg,#6E56CF,#9B7FE8)",color:"#fff",cursor:"pointer",fontWeight:700,width:"100%",marginTop:"20px" }}>
               {loading?"Please wait…":"Sign In"}
             </button>
           </div>
@@ -167,7 +294,7 @@ function Dashboard({ units, sourceMap, allSources }) {
     const byDate = {};
     data.forEach(b=>{
       if (b.status === "cancelled") return;
-      const stayDates = getDatesInRange(b.start_date, b.end_date);
+      const stayDates = getDatesInRange(b.start_date || b.date, b.end_date || b.date);
       stayDates.forEach(dateStr => {
         if(dateStr.startsWith(monthStr)) {
           if(!byDate[dateStr]) byDate[dateStr]=[];
@@ -185,7 +312,7 @@ function Dashboard({ units, sourceMap, allSources }) {
     return { bySource, totalRevenue, totalDays, occupancyPct, totalBookings:data.filter(x=>x.status!=="cancelled").length };
   },[data, daysInMonth, monthStr, allSources]);
 
-  const btnStyle = (active) => ({ padding:"5px 14px",borderRadius:"20px",border:`1px solid ${active?"rgba(110,86,207,0.7)":"rgba(255,255,255,0.1)"}`,background:active?"rgba(110,86,207,0.2)":"transparent",color:active?"#C4B5FD":"rgba(255,255,255,0.4)",fontFamily:"'DM Mono', monospace",fontSize:"11px",cursor:"pointer",whiteSpace:"nowrap" });
+  const btnStyle = (active) => ({ padding:"5px 14px",borderRadius:"20px",border:`1px solid ${active?"rgba(110,86,207,0.7)":"rgba(255,255,255,0.1)"}`,background:active?"rgba(110,86,207,0.2)":"transparent",color:active?"#C4B5FD":"rgba(255,255,255,0.4)",fontFamily:"'DM Mono', monospace",fontSize:"11px",cursor:"pointer" });
 
   return (
       <div style={{ padding:"20px 0" }}>
@@ -222,16 +349,15 @@ function BookingBadge({ booking, onClick, sourceMap }) {
   return (
       <div onClick={e=>{e.stopPropagation();onClick(booking);}} style={{ background: isCancelled ? "rgba(255,255,255,0.05)" : `linear-gradient(135deg,${src.color}cc,${src.color}77)`,color: isCancelled ? "rgba(255,255,255,0.2)" : "#fff",borderRadius:"4px",padding:"2px 5px",fontSize:"10px",fontFamily:"'DM Mono', monospace",fontWeight:600,cursor:"pointer",marginBottom:"2px",display:"flex",alignItems:"center",gap:"3px",overflow:"hidden",whiteSpace:"nowrap",textOverflow:"ellipsis",textDecoration: isCancelled ? "line-through" : "none" }}>
         <span style={{ fontSize:"9px",flexShrink:0 }}>{isCancelled ? "❌" : src.icon}</span>
-        <span style={{ overflow:"hidden",textOverflow:"ellipsis" }}>{booking.guest_name||src.label}</span>
+        <span style={{ overflow:"hidden",textOverflow:"ellipsis" }}>{(booking.guest_name || booking.guestName)||src.label}</span>
         {half && <span style={{ fontSize:"8px",flexShrink:0 }}>½</span>}
       </div>
   );
 }
 
 function BookingForm({ date, unit, onSave, onClose, editBooking, allSources }) {
-  const [form,setForm] = useState(editBooking || { guest_name:"", source:"direct", start_date:date, end_date:date, check_in:"14:00", check_out:"11:00", amount:"", guest_phone:"", guest_count:"1", status:"confirmed", payment_status:"pending", payment_method:"UPI", notes:"", overflow_to:"" });
+  const [form,setForm] = useState(editBooking || { guest_name: editBooking?.guest_name || editBooking?.guestName || "", source:"direct", start_date: editBooking?.start_date || date, end_date: editBooking?.end_date || date, check_in: editBooking?.check_in || editBooking?.checkIn || "14:00", check_out: editBooking?.check_out || editBooking?.checkOut || "11:00", amount: editBooking?.amount || "", guest_phone: editBooking?.guest_phone || "", guest_count: editBooking?.guest_count || "1", status: editBooking?.status || "confirmed", payment_status: editBooking?.payment_status || "pending", payment_method: editBooking?.payment_method || "UPI", notes: editBooking?.notes || "" });
   const [error,setError]=useState("");
-  const set=(f,v)=>setForm(p=>({...p,[f]:v}));
 
   const handleSave=async()=>{
     if(!form.guest_name.trim()) return setError("Guest name is required.");
@@ -250,25 +376,25 @@ function BookingForm({ date, unit, onSave, onClose, editBooking, allSources }) {
           <button onClick={onClose} style={{ background:"rgba(255,255,255,0.06)",border:"none",borderRadius:"8px",color:"rgba(255,255,255,0.5)",cursor:"pointer",fontSize:"18px",width:"34px",height:"34px" }}>×</button>
         </div>
         <div style={{ display:"grid",gap:"14px" }}>
-          <div><label style={lbl}>Guest Name</label><input style={inp} value={form.guest_name} onChange={e=>set("guest_name",e.target.value)}/></div>
+          <div><label style={lbl}>Guest Name</label><input style={inp} value={form.guest_name} onChange={e=>setForm({...form, guest_name: e.target.value})}/></div>
           <div style={{ display:"grid",gridTemplateColumns:"1fr 1fr",gap:"10px" }}>
-            <div><label style={lbl}>Start Date</label><input type="date" style={inp} value={form.start_date} onChange={e=>set("start_date",e.target.value)}/></div>
-            <div><label style={lbl}>End Date</label><input type="date" style={inp} value={form.end_date} onChange={e=>set("end_date",e.target.value)}/></div>
+            <div><label style={lbl}>Start Date</label><input type="date" style={inp} value={form.start_date} onChange={e=>setForm({...form, start_date: e.target.value})}/></div>
+            <div><label style={lbl}>End Date</label><input type="date" style={inp} value={form.end_date} onChange={e=>setForm({...form, end_date: e.target.value})}/></div>
           </div>
           <div style={{ display:"grid",gridTemplateColumns:"1fr 1fr",gap:"10px" }}>
-            <div><label style={lbl}>Guest Phone</label><input style={inp} value={form.guest_phone} onChange={e=>set("guest_phone",e.target.value)} placeholder="+91"/></div>
-            <div><label style={lbl}>Total Guests</label><input type="number" style={inp} value={form.guest_count} onChange={e=>set("guest_count",e.target.value)}/></div>
+            <div><label style={lbl}>Guest Phone</label><input style={inp} value={form.guest_phone} onChange={e=>setForm({...form, guest_phone: e.target.value})} placeholder="+91"/></div>
+            <div><label style={lbl}>Total Guests</label><input type="number" style={inp} value={form.guest_count} onChange={e=>setForm({...form, guest_count: e.target.value})}/></div>
           </div>
           <div style={{ display:"grid",gridTemplateColumns:"1fr 1fr",gap:"10px" }}>
             <div>
               <label style={lbl}>Booking Status</label>
-              <select style={inp} value={form.status} onChange={e=>set("status",e.target.value)}>
+              <select style={inp} value={form.status} onChange={e=>setForm({...form, status: e.target.value})}>
                 {BOOKING_STATUSES.map(s => <option key={s.id} value={s.id}>{s.label}</option>)}
               </select>
             </div>
             <div>
               <label style={lbl}>Payment Status</label>
-              <select style={inp} value={form.payment_status} onChange={e=>set("payment_status",e.target.value)}>
+              <select style={inp} value={form.payment_status} onChange={e=>setForm({...form, payment_status: e.target.value})}>
                 {PAYMENT_STATUSES.map(s => <option key={s.id} value={s.id}>{s.label}</option>)}
               </select>
             </div>
@@ -276,21 +402,21 @@ function BookingForm({ date, unit, onSave, onClose, editBooking, allSources }) {
           <div style={{ display:"grid",gridTemplateColumns:"1fr 1fr",gap:"10px" }}>
             <div>
               <label style={lbl}>Payment Method</label>
-              <select style={inp} value={form.payment_method} onChange={e=>set("payment_method",e.target.value)}>
+              <select style={inp} value={form.payment_method} onChange={e=>setForm({...form, payment_method: e.target.value})}>
                 <option value="UPI">UPI / QR</option>
                 <option value="Cash">Cash</option>
                 <option value="Bank Transfer">Bank Transfer</option>
               </select>
             </div>
-            <div><label style={lbl}>Amount (₹)</label><input type="number" style={inp} value={form.amount} onChange={e=>set("amount",e.target.value)}/></div>
+            <div><label style={lbl}>Amount (₹)</label><input type="number" style={inp} value={form.amount} onChange={e=>setForm({...form, amount: e.target.value})}/></div>
           </div>
           <div>
             <label style={lbl}>Booking Source</label>
-            <select style={inp} value={form.source} onChange={e=>set("source",e.target.value)}>
+            <select style={inp} value={form.source} onChange={e=>setForm({...form, source: e.target.value})}>
               {allSources.map(s => <option key={s.id} value={s.id}>{s.icon} {s.label}</option>)}
             </select>
           </div>
-          <div><label style={lbl}>Notes</label><textarea style={inp} value={form.notes} onChange={e=>set("notes",e.target.value)}/></div>
+          <div><label style={lbl}>Notes</label><textarea style={inp} value={form.notes} onChange={e=>setForm({...form, notes: e.target.value})}/></div>
         </div>
         {error&&<div style={{ color:"#FF7B7F",fontSize:"11px",marginTop:"10px" }}>⚠ {error}</div>}
         <div style={{ display:"flex",gap:"10px",marginTop:"20px" }}>
@@ -301,13 +427,14 @@ function BookingForm({ date, unit, onSave, onClose, editBooking, allSources }) {
 }
 
 function BookingDetail({ booking, unit, onClose, onEdit, onDelete }) {
-  const half = isHalfDay(booking);
+  const currentStatus = booking.status || "confirmed";
+  const currentPaymentStatus = booking.payment_status || "pending";
   return (
       <>
         <div style={{ display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:"20px" }}>
           <div>
-            <div style={{ color:"#F0EEF8",fontSize:"20px",fontFamily:"'Playfair Display', serif",fontWeight:700 }}>{booking.guest_name}</div>
-            <div style={{ color:"rgba(255,255,255,0.35)",fontSize:"11px" }}>Range: {booking.start_date} to {booking.end_date}</div>
+            <div style={{ color:"#F0EEF8",fontSize:"20px",fontFamily:"'Playfair Display', serif",fontWeight:700 }}>{booking.guest_name || booking.guestName}</div>
+            <div style={{ color:"rgba(255,255,255,0.35)",fontSize:"11px" }}>Range: {booking.start_date || booking.date} to {booking.end_date || booking.date}</div>
           </div>
           <button onClick={onClose} style={{ background:"transparent",border:"none",color:"#fff",fontSize:"18px" }}>×</button>
         </div>
@@ -315,7 +442,7 @@ function BookingDetail({ booking, unit, onClose, onEdit, onDelete }) {
           <div style={{ background:"rgba(255,255,255,0.02)", padding:"12px", borderRadius:"8px" }}>
             <span style={lbl}>Status Workflow / Finance</span>
             <div style={{ color:"#C4B5FD", fontSize:"14px", fontWeight:700, marginTop:"4px" }}>
-              {booking.status.toUpperCase()} — {booking.payment_status.toUpperCase()} (₹{Number(booking.amount).toLocaleString("en-IN")})
+              {currentStatus.toUpperCase()} — {currentPaymentStatus.toUpperCase()} (₹{Number(booking.amount).toLocaleString("en-IN")})
             </div>
           </div>
           {booking.guest_phone && <div style={{ color:"#fff", fontSize:"12px" }}>📞 Phone: {booking.guest_phone}</div>}
@@ -348,6 +475,7 @@ export default function App() {
   const [modalState,setModalState] = useState(null);
   const [activeTab,setActiveTab]   = useState("calendar");
   const [syncing, setSyncing]      = useState(false);
+  const [showProfile, setShowProfile] = useState(false);
 
   const allSources = useMemo(() => [...BASE_SOURCES, ...customSources], [customSources]);
   const sourceMap = useMemo(() => Object.fromEntries(allSources.map(s => [s.id, s])), [allSources]);
@@ -376,8 +504,11 @@ export default function App() {
     setStatus("loading");
     API2.bookings(selectedUnit.id).then(rows=>{
       const map={};
-      (rows||[]).forEach(row=>{
-        const stayDates = getDatesInRange(row.start_date, row.end_date);
+      (rows||[]).forEach(row => {
+        // Safe mapping alignment handles both old 'date' key and new multi-night range keys seamlessly
+        const start = row.start_date || row.date;
+        const end = row.end_date || row.date;
+        const stayDates = getDatesInRange(start, end);
         stayDates.forEach(dateStr => {
           if(!map[dateStr]) map[dateStr]=[];
           map[dateStr].push(row);
@@ -413,15 +544,23 @@ export default function App() {
     setModalState(null);
   };
 
+  const handleAddUnit = async (name, loc) => {
+    try {
+      const list = await API2.addUnit(name, loc);
+      setUnits(list || []);
+      if(list?.length) setSelectedUnit(list[list.length - 1]);
+    } catch(e) { setStatus("error"); }
+  };
+
   const runChannelSync = async () => {
     if (!selectedUnit) return;
     setSyncing(true); setStatus("loading");
     try {
       const res = await API2.syncICal(selectedUnit.id);
-      alert(`Sync completely processed! Synced external operations.`);
+      alert(`Sync finished! Imported external events.`);
       loadBookings();
     } catch (e) {
-      alert("iCal remote synchronization task failed.");
+      alert("iCal synchronization failed.");
       setStatus("error");
     }
     setSyncing(false);
@@ -438,7 +577,9 @@ export default function App() {
 
   const monthPrefix=`${currentYear}-${String(currentMonth+1).padStart(2,"0")}`;
   const monthBks = Object.entries(bookings).filter(([d])=>d.startsWith(monthPrefix)).flatMap(([,l])=>l);
-  const totalRevenue = monthBks.filter(b => b.status !== "cancelled").reduce((s,b)=>s+Number(b.amount||0),0);
+  // Filter out any duplicated references stemming from continuous range array spans inside standard aggregation loops
+  const uniqueMonthBookings = Array.from(new Map(monthBks.map(b => [b.id, b])).values());
+  const totalRevenue = uniqueMonthBookings.filter(b => b.status !== "cancelled").reduce((s,b)=>s+Number(b.amount||0),0);
 
   return (
       <div style={{ minHeight:"100vh",background:"#0A0A12",fontFamily:"'DM Mono', monospace",overflowX:"hidden" }}>
@@ -447,7 +588,7 @@ export default function App() {
         @keyframes fadeIn{from{opacity:0}to{opacity:1}} @keyframes slideUp{from{opacity:0;transform:translateY(28px) scale(0.97)}to{opacity:1;transform:translateY(0) scale(1)}}
       `}</style>
 
-        {/* ── HEADER WITH PREVIOUS TABS VISIBLE ── */}
+        {/* ── RESTORED HEADER NAVIGATION WITH ADMIN TAB VISIBILITY ── */}
         <div style={{ background:"rgba(255,255,255,0.02)",borderBottom:"1px solid rgba(255,255,255,0.06)",padding:"12px 24px",display:"flex",alignItems:"center",justifyContent:"space-between",flexWrap:"wrap",gap:"10px" }}>
           <div style={{ display:"flex",alignItems:"center",gap:"12px" }}>
             <span style={{ fontSize:"22px" }}>🏢</span>
@@ -456,9 +597,17 @@ export default function App() {
           <div style={{ display:"flex",alignItems:"center",gap:"10px" }}>
             {tabBtn("calendar","Calendar","📅")}
             {tabBtn("dashboard","Reports","📊")}
+            {user.role==="admin" && tabBtn("admin","Admin","⚙")}
           </div>
           <div style={{ display:"flex",alignItems:"center",gap:"10px" }}>
             <StatusBadge status={status}/>
+
+            {/* RESTORED PROFILE MANAGEMENT HOOK BUTTON */}
+            <button onClick={()=>setShowProfile(true)} style={{ display:"flex",alignItems:"center",gap:"8px",background:"rgba(255,255,255,0.04)",border:"1px solid rgba(255,255,255,0.08)",borderRadius:"20px",padding:"4px 12px",cursor:"pointer" }}>
+              <div style={{ width:"16px",height:"16px",borderRadius:"50%",background:"#6E56CF",fontSize:"9px",display:"flex",alignItems:"center",justifyContent:"center",color:"#fff" }}>{(user.name||user.email)[0].toUpperCase()}</div>
+              <span style={{ color:"rgba(255,255,255,0.5)",fontSize:"10px" }}>{user.name || user.email}</span>
+            </button>
+
             <button onClick={runChannelSync} disabled={syncing} style={{ padding:"5px 12px", background:"#F59E0B", color:"#000", border:"none", borderRadius:"20px", fontSize:"10px", cursor:"pointer", fontWeight:700 }}>
               {syncing ? "Syncing..." : "🔄 Sync iCals"}
             </button>
@@ -466,23 +615,25 @@ export default function App() {
           </div>
         </div>
 
-        {/* ── PROPERTY UNIT BAR ── */}
+        {/* ── PROPERTY UNIT BAR WITH ADD UNIT RESTORED ── */}
         <div style={{ background:"rgba(110,86,207,0.05)",borderBottom:"1px solid rgba(110,86,207,0.12)",padding:"10px 24px",display:"flex",alignItems:"center",gap:"8px",flexWrap:"wrap" }}>
           {units.map(u=>(
               <button key={u.id} onClick={()=>setSelectedUnit(u)} style={{ padding:"5px 14px",borderRadius:"20px",border:`1px solid ${selectedUnit?.id===u.id?"rgba(110,86,207,0.7)":"rgba(255,255,255,0.1)"}`,background:selectedUnit?.id===u.id?"rgba(110,86,207,0.2)":"transparent",color:selectedUnit?.id===u.id?"#C4B5FD":"rgba(255,255,255,0.4)",cursor:"pointer" }}>
                 {u.name}
               </button>
           ))}
+          <button onClick={()=>setModalState({type:"addUnit"})} style={{ padding:"5px 12px",borderRadius:"20px",border:"1px dashed rgba(255,255,255,0.12)",background:"transparent",color:"rgba(255,255,255,0.3)",fontSize:"11px",cursor:"pointer" }}>+ Add Unit</button>
         </div>
 
         <div style={{ maxWidth:"920px",margin:"0 auto",padding:"20px 16px" }}>
           {activeTab==="dashboard" && <Dashboard units={units} sourceMap={sourceMap} allSources={allSources}/>}
+          {activeTab==="admin" && user.role==="admin" && <AdminPanel units={units}/>}
 
           {activeTab==="calendar" && <>
             {/* Stats Overview Grid Widget Block */}
             <div style={{ display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:"10px",marginBottom:"20px" }}>
               {[
-                {label:"Bookings",   value:monthBks.filter(x=>x.status!=="cancelled").length, accent:"#C4B5FD"},
+                {label:"Bookings",   value:uniqueMonthBookings.filter(x=>x.status!=="cancelled").length, accent:"#C4B5FD"},
                 {label:"Revenue",    value:`₹${totalRevenue.toLocaleString("en-IN")}`, accent:"#86EFAC"},
                 {label:"Active Units", value:units.length, accent:"#A78BFA"},
                 {label:"Occupancy",  value:(()=>{
@@ -499,14 +650,13 @@ export default function App() {
               ))}
             </div>
 
-            {/* Inbound iCal Feed Reference Display Block */}
             {selectedUnit && (
                 <div style={{ background: "rgba(255,255,255,0.02)", padding: "10px 16px", borderRadius: "8px", marginBottom: "20px", border: "1px solid rgba(255,255,255,0.06)", fontSize: "11px", color: "rgba(255,255,255,0.4)" }}>
                   📌 <strong>Inbound Platform Export URL:</strong> <span style={{ color:"#C4B5FD" }}>{window.location.origin}/api/bookings?action=export_ical&unit_id={selectedUnit.id}</span>
                 </div>
             )}
 
-            {/* ── PREVIOUS DESIGN CALENDAR NAV CONTAINER ── */}
+            {/* Calendar Controls Layout */}
             <div style={{ background:"rgba(255,255,255,0.025)",border:"1px solid rgba(255,255,255,0.08)",borderRadius:"16px 16px 0 0",padding:"16px 22px",display:"flex",alignItems:"center",justifyContent:"space-between" }}>
               <button onClick={prevMonth} style={{ background:"rgba(255,255,255,0.06)",border:"none",borderRadius:"8px",color:"rgba(255,255,255,0.5)",cursor:"pointer",width:"34px",height:"34px",fontSize:"16px" }}>‹</button>
               <div style={{ textAlign:"center" }}>
@@ -520,7 +670,6 @@ export default function App() {
               {DAYS.map(d=><div key={d} style={{ padding:"9px 0",textAlign:"center",color:"rgba(255,255,255,0.25)",fontSize:"9px",textTransform:"uppercase",borderBottom:"1px solid rgba(255,255,255,0.06)" }}>{d}</div>)}
             </div>
 
-            {/* Calendar Main Grid Blocks */}
             <div style={{ display:"grid",gridTemplateColumns:"repeat(7,1fr)",border:"1px solid rgba(255,255,255,0.08)",borderTop:"none",borderRadius:"0 0 16px 16px",overflow:"hidden",background:"rgba(255,255,255,0.012)" }}>
               {Array.from({length:firstDay}).map((_,i)=><div key={`e${i}`} style={{ minHeight:"90px",background:"rgba(0,0,0,0.12)",borderRight:"1px solid rgba(255,255,255,0.04)",borderBottom:"1px solid rgba(255,255,255,0.04)" }}/>)}
               {Array.from({length:daysInMonth},(_,i)=>i+1).map(day=>{
@@ -542,7 +691,15 @@ export default function App() {
           </>}
         </div>
 
-        {/* Operational Flow Modals */}
+        {/* Profile Modal Hook */}
+        <Modal isOpen={showProfile} onClose={()=>setShowProfile(false)}>
+          <ProfileModal user={user} onClose={()=>setShowProfile(false)} onUpdate={(u)=>{setUser(u); setShowProfile(false);}}/>
+        </Modal>
+
+        {/* Action Form Hooks */}
+        <Modal isOpen={modalState?.type==="addUnit"} onClose={()=>setModalState(null)}>
+          <AddUnitModal onAdd={handleAddUnit} onClose={()=>setModalState(null)}/>
+        </Modal>
         <Modal isOpen={modalState?.type==="add"} onClose={()=>setModalState(null)}>
           <BookingForm date={modalState?.date} unit={selectedUnit} onSave={handleSave} onClose={()=>setModalState(null)} editBooking={null} allSources={allSources}/>
         </Modal>
