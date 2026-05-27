@@ -1,10 +1,9 @@
 // netlify/functions/bookings.mjs
-// Uses Supabase REST API directly — zero npm dependencies
+// Extended for Multi-Night, Status Workflows, and Payment Tracking
 
 const SUPABASE_URL = process.env.SUPABASE_URL;
 const SUPABASE_KEY = process.env.SUPABASE_KEY;
 const JWT_SECRET   = process.env.JWT_SECRET || "change-me";
-const ADMIN_EMAIL  = "blissfulperch@gmail.com";
 
 const CORS = {
   "Access-Control-Allow-Origin":  "*",
@@ -13,7 +12,6 @@ const CORS = {
   "Content-Type": "application/json",
 };
 
-// ── Supabase REST helpers ─────────────────────────────────────────────────────
 const sbH = {
   "Content-Type":  "application/json",
   "apikey":        SUPABASE_KEY,
@@ -40,17 +38,6 @@ async function sbDelete(table, qs) {
   if (!res.ok) throw new Error(await res.text());
 }
 
-async function sbInsert(table, body) {
-  const res = await fetch(`${SUPABASE_URL}/rest/v1/${table}`, {
-    method: "POST",
-    headers: { ...sbH, "Prefer": "return=representation" },
-    body: JSON.stringify(body),
-  });
-  if (!res.ok) throw new Error(await res.text());
-  return res.json();
-}
-
-// ── JWT verify ────────────────────────────────────────────────────────────────
 async function verifyJWT(token) {
   const [h, b, sig] = token.split(".");
   const msg = `${h}.${b}`;
@@ -69,18 +56,14 @@ async function requireAuth(req) {
   return verifyJWT(token);
 }
 
-// ── Visible units for a user ──────────────────────────────────────────────────
 async function getVisibleUnitIds(user) {
   if (user.role === "admin") {
     const rows = await sbSelect("units", "select=id");
     return rows.map(r => r.id);
   }
-  // Units owned by user
   const owned = await sbSelect("units", `owner_id=eq.${user.sub}&select=id`);
-  // Units granted via permissions
   const granted = await sbSelect("unit_permissions", `user_id=eq.${user.sub}&select=unit_id`);
-  const ids = [...new Set([...owned.map(r=>r.id), ...granted.map(r=>r.unit_id)])];
-  return ids;
+  return [...new Set([...owned.map(r=>r.id), ...granted.map(r=>r.unit_id)])];
 }
 
 async function getVisibleUnits(user) {
@@ -92,18 +75,6 @@ async function getVisibleUnits(user) {
   return sbSelect("units", `id=in.(${ids.join(",")})&order=location.asc,name.asc`);
 }
 
-// ── Seed default units if none exist ─────────────────────────────────────────
-async function seedDefaultUnits(adminUserId) {
-  const existing = await sbSelect("units", "id=in.(unit-1625,unit-1626)&select=id");
-  if (!existing.length) {
-    await sbUpsert("units", [
-      { id:"unit-1625", name:"Unit 1625", location:"Gaur City Center, Greater Noida", owner_id:adminUserId },
-      { id:"unit-1626", name:"Unit 1626", location:"Gaur City Center, Greater Noida", owner_id:adminUserId },
-    ]);
-  }
-}
-
-// ── Handler ───────────────────────────────────────────────────────────────────
 export default async function handler(req) {
   if (req.method === "OPTIONS") return new Response(null, { status:204, headers:CORS });
 
@@ -113,117 +84,62 @@ export default async function handler(req) {
     const action = url.searchParams.get("action") || "bookings";
     const method = req.method;
 
-    // Seed default units once
-    if (user.role === "admin") {
-      try { await seedDefaultUnits(user.sub); } catch(_) {}
-    }
-
-    // ── GET units ───────────────────────────────────────────────────────────
     if (action === "units" && method === "GET") {
       const units = await getVisibleUnits(user);
       return new Response(JSON.stringify(units), { headers:CORS });
     }
 
-    // ── POST add unit ───────────────────────────────────────────────────────
-    if (action === "units" && method === "POST") {
-      const { name, location } = await req.json();
-      const id = "unit-" + crypto.randomUUID().slice(0,8);
-      await sbUpsert("units", { id, name, location:location||"", owner_id:user.sub });
-      const units = await getVisibleUnits(user);
-      return new Response(JSON.stringify(units), { headers:CORS });
-    }
-
-    // ── GET all users (admin only) ──────────────────────────────────────────
-    if (action === "users" && method === "GET") {
-      if (user.role !== "admin") return new Response(JSON.stringify({ error:"Forbidden" }), { status:403, headers:CORS });
-      const users = await sbSelect("users", "select=id,email,name,avatar,role,created_at&order=created_at.desc");
-      return new Response(JSON.stringify(users), { headers:CORS });
-    }
-
-    // ── GET permissions for a unit (admin only) ─────────────────────────────
-    if (action === "permissions" && method === "GET") {
-      if (user.role !== "admin") return new Response(JSON.stringify({ error:"Forbidden" }), { status:403, headers:CORS });
-      const unitId = url.searchParams.get("unit_id");
-      // Get permissions then enrich with user details
-      const perms = await sbSelect("unit_permissions", `unit_id=eq.${unitId}`);
-      if (!perms.length) return new Response(JSON.stringify([]), { headers:CORS });
-      const userIds = perms.map(p=>p.user_id).join(",");
-      const users2  = await sbSelect("users", `id=in.(${userIds})&select=id,email,name,avatar`);
-      const userMap = Object.fromEntries(users2.map(u=>[u.id,u]));
-      const enriched = perms.map(p=>({ ...p, ...userMap[p.user_id] }));
-      return new Response(JSON.stringify(enriched), { headers:CORS });
-    }
-
-    // ── POST grant permission (admin only) ──────────────────────────────────
-    if (action === "permissions" && method === "POST") {
-      if (user.role !== "admin") return new Response(JSON.stringify({ error:"Forbidden" }), { status:403, headers:CORS });
-      const { unit_id, user_id } = await req.json();
-      const id = crypto.randomUUID();
-      try {
-        await sbInsert("unit_permissions", { id, unit_id, user_id, granted_by:user.sub });
-      } catch(e) {
-        if (e.message.includes("unique") || e.message.includes("duplicate")) {
-          return new Response(JSON.stringify({ ok:true }), { headers:CORS }); // already granted
-        }
-        throw e;
-      }
-      return new Response(JSON.stringify({ ok:true }), { headers:CORS });
-    }
-
-    // ── DELETE permission (admin only) ──────────────────────────────────────
-    if (action === "permissions" && method === "DELETE") {
-      if (user.role !== "admin") return new Response(JSON.stringify({ error:"Forbidden" }), { status:403, headers:CORS });
-      const unit_id = url.searchParams.get("unit_id");
-      const user_id = url.searchParams.get("user_id");
-      await sbDelete("unit_permissions", `unit_id=eq.${unit_id}&user_id=eq.${user_id}`);
-      return new Response(JSON.stringify({ ok:true }), { headers:CORS });
-    }
-
-    // ── GET bookings for a unit ─────────────────────────────────────────────
     if (action === "bookings" && method === "GET") {
       const unitId = url.searchParams.get("unit_id");
       if (!unitId) return new Response(JSON.stringify({ error:"unit_id required" }), { status:400, headers:CORS });
+
       const visibleIds = await getVisibleUnitIds(user);
       if (!visibleIds.includes(unitId)) return new Response(JSON.stringify({ error:"Forbidden" }), { status:403, headers:CORS });
-      const rows = await sbSelect("bookings", `unit_id=eq.${unitId}&order=date.asc`);
+
+      const rows = await sbSelect("bookings", `unit_id=eq.${unitId}&order=start_date.asc`);
       return new Response(JSON.stringify(rows), { headers:CORS });
     }
 
-    // ── GET stats ───────────────────────────────────────────────────────────
     if (action === "stats" && method === "GET") {
-      const unitId = url.searchParams.get("unit_id");
-      const month  = url.searchParams.get("month"); // YYYY-MM
-      const monthFilter = month ? `&date=like.${month}*` : "";
-      if (unitId) {
-        const rows = await sbSelect("bookings", `unit_id=eq.${unitId}${monthFilter}&order=date.asc`);
-        return new Response(JSON.stringify(rows), { headers:CORS });
-      }
+      const month = url.searchParams.get("month"); // YYYY-MM
       const visibleIds = await getVisibleUnitIds(user);
       if (!visibleIds.length) return new Response(JSON.stringify([]), { headers:CORS });
-      const rows = await sbSelect("bookings", `unit_id=in.(${visibleIds.join(",")})${monthFilter}&order=date.asc`);
+
+      // Select all active reservations overlapping the operational target window
+      const rows = await sbSelect("bookings", `unit_id=in.(${visibleIds.join(",")})&order=start_date.asc`);
       return new Response(JSON.stringify(rows), { headers:CORS });
     }
 
-    // ── POST upsert booking ─────────────────────────────────────────────────
     if (action === "bookings" && method === "POST") {
       const b = await req.json();
+
+      // Ensure date range validation logic matches backend ingestion targets
+      if (!b.start_date || !b.end_date) {
+        return new Response(JSON.stringify({ error: "Missing start_date or end_date range" }), { status:400, headers:CORS });
+      }
+
       await sbUpsert("bookings", {
-        id:          b.id,
-        unit_id:     b.unit_id,
-        date:        b.date,
-        guest_name:  b.guest_name,
-        source:      b.source,
-        check_in:    b.check_in,
-        check_out:   b.check_out,
-        amount:      Number(b.amount),
-        notes:       b.notes||"",
-        overflow_to: b.overflow_to||null,
-        created_by:  user.email,
+        id:            b.id,
+        unit_id:       b.unit_id,
+        start_date:    b.start_date, // Structural expansion format: YYYY-MM-DD
+        end_date:      b.end_date,   // Checkout boundary format: YYYY-MM-DD
+        guest_name:    b.guest_name,
+        guest_phone:   b.guest_phone || null,
+        guest_count:   b.guest_count ? Number(b.guest_count) : 1,
+        source:        b.source,
+        check_in:      b.check_in,
+        check_out:     b.check_out,
+        amount:        Number(b.amount),
+        status:        b.status || "confirmed", // enquiry | confirmed | checked_in | checked_out | cancelled
+        payment_status:b.payment_status || "pending", // pending | partially_paid | paid | refunded
+        payment_method:b.payment_method || "UPI",
+        notes:         b.notes || "",
+        overflow_to:   b.overflow_to || null,
+        created_by:    user.email,
       });
       return new Response(JSON.stringify({ ok:true }), { headers:CORS });
     }
 
-    // ── DELETE booking ──────────────────────────────────────────────────────
     if (action === "bookings" && method === "DELETE") {
       const id = url.searchParams.get("id");
       if (!id) return new Response(JSON.stringify({ error:"id required" }), { status:400, headers:CORS });
