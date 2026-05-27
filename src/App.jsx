@@ -50,22 +50,201 @@ async function apiFetch(path, opts={}) {
 }
 
 const API2 = {
-  verify:         ()          => apiFetch("/auth?action=verify"),
-  login:          (e,p)       => apiFetch("/auth?action=login",    { method:"POST", body:JSON.stringify({email:e,password:p}) }),
-  register:       (e,p,n)     => apiFetch("/auth?action=register", { method:"POST", body:JSON.stringify({email:e,password:p,name:n}) }),
-  googleUrl:      ()          => `${API}/auth?action=google`,
-  allUsers:       ()          => apiFetch("/bookings?action=users"),
-  units:          ()          => apiFetch("/bookings?action=units"),
-  addUnit:        (n,l)       => apiFetch("/bookings?action=units", { method:"POST", body:JSON.stringify({name:n,location:l}) }),
-  bookings:       (uid)       => apiFetch(`/bookings?action=bookings&unit_id=${encodeURIComponent(uid)}`),
-  stats:          (uid,month) => apiFetch(`/bookings?action=stats&unit_id=${encodeURIComponent(uid)}&month=${month}`),
-  allStats:       (month)     => apiFetch(`/bookings?action=stats&month=${month}`),
-  upsert:         (b)         => apiFetch("/bookings?action=bookings", { method:"POST", body:JSON.stringify(b) }),
-  deleteBooking:  (id)        => apiFetch(`/bookings?action=bookings&id=${id}`, { method:"DELETE" }),
-  getPerms:       (uid)       => apiFetch(`/bookings?action=permissions&unit_id=${encodeURIComponent(uid)}`),
-  grantPerm:      (uid,userId)=> apiFetch("/bookings?action=permissions", { method:"POST", body:JSON.stringify({unit_id:uid,user_id:userId}) }),
-  revokePerm:     (uid,userId)=> apiFetch(`/bookings?action=permissions&unit_id=${encodeURIComponent(uid)}&user_id=${userId}`, { method:"DELETE" }),
+  verify:          ()           => apiFetch("/auth?action=verify"),
+  login:           (e,p)        => apiFetch("/auth?action=login",           { method:"POST", body:JSON.stringify({email:e,password:p}) }),
+  register:        (e,p,n)      => apiFetch("/auth?action=register",        { method:"POST", body:JSON.stringify({email:e,password:p,name:n}) }),
+  googleUrl:       ()           => `${API}/auth?action=google`,
+  updateProfile:   (data)       => apiFetch("/auth?action=profile",         { method:"PATCH", body:JSON.stringify(data) }),
+  changePassword:  (cur,nw)     => apiFetch("/auth?action=change-password", { method:"POST",  body:JSON.stringify({currentPassword:cur,newPassword:nw}) }),
+  allUsers:        ()           => apiFetch("/bookings?action=users"),
+  units:           ()           => apiFetch("/bookings?action=units"),
+  addUnit:         (n,l)        => apiFetch("/bookings?action=units",        { method:"POST", body:JSON.stringify({name:n,location:l}) }),
+  bookings:        (uid)        => apiFetch(`/bookings?action=bookings&unit_id=${encodeURIComponent(uid)}`),
+  stats:           (uid,month)  => apiFetch(`/bookings?action=stats&unit_id=${encodeURIComponent(uid)}&month=${month}`),
+  allStats:        (month)      => apiFetch(`/bookings?action=stats&month=${month}`),
+  upsert:          (b)          => apiFetch("/bookings?action=bookings",     { method:"POST", body:JSON.stringify(b) }),
+  deleteBooking:   (id)         => apiFetch(`/bookings?action=bookings&id=${id}`, { method:"DELETE" }),
+  getPerms:        (uid)        => apiFetch(`/bookings?action=permissions&unit_id=${encodeURIComponent(uid)}`),
+  grantPerm:       (uid,userId) => apiFetch("/bookings?action=permissions",  { method:"POST", body:JSON.stringify({unit_id:uid,user_id:userId}) }),
+  revokePerm:      (uid,userId) => apiFetch(`/bookings?action=permissions&unit_id=${encodeURIComponent(uid)}&user_id=${userId}`, { method:"DELETE" }),
 };
+
+// ── PROFILE MODAL ─────────────────────────────────────────────────────────────
+function ProfileModal({ user, onClose, onUpdate }) {
+  const [tab, setTab]           = useState("profile"); // profile | password
+  const [name, setName]         = useState(user.name||"");
+  const [bio, setBio]           = useState(user.bio||"");
+  const [phone, setPhone]       = useState(user.phone||"");
+  const [avatarUrl, setAvatarUrl] = useState(user.avatar||"");
+  const [avatarPreview, setAvatarPreview] = useState(user.avatar||"");
+  const [currentPw, setCurrentPw] = useState("");
+  const [newPw, setNewPw]         = useState("");
+  const [confirmPw, setConfirmPw] = useState("");
+  const [saving, setSaving]     = useState(false);
+  const [msg, setMsg]           = useState({ text:"", type:"" });
+
+  const fi = e => e.target.style.borderColor = "rgba(110,86,207,0.7)";
+  const fb = e => e.target.style.borderColor = "rgba(255,255,255,0.1)";
+
+  const showMsg = (text, type="success") => {
+    setMsg({ text, type });
+    setTimeout(() => setMsg({ text:"", type:"" }), 3000);
+  };
+
+  const handleAvatarUrl = (url) => {
+    setAvatarUrl(url);
+    setAvatarPreview(url);
+  };
+
+  const handleFileUpload = (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    if (!file.type.startsWith("image/")) return showMsg("Please select an image file", "error");
+    if (file.size > 2 * 1024 * 1024) return showMsg("Image must be under 2MB", "error");
+    const reader = new FileReader();
+    reader.onload = (ev) => {
+      setAvatarPreview(ev.target.result);
+      setAvatarUrl(ev.target.result); // base64 data URL
+    };
+    reader.readAsDataURL(file);
+  };
+
+  const saveProfile = async () => {
+    if (!name.trim()) return showMsg("Name cannot be empty", "error");
+    setSaving(true);
+    try {
+      const res = await API2.updateProfile({ name:name.trim(), bio:bio.trim(), phone:phone.trim(), avatar:avatarUrl });
+      setToken(res.token);
+      onUpdate(res.user);
+      showMsg("Profile updated successfully ✓");
+    } catch(e) {
+      showMsg(e.message.includes("{") ? JSON.parse(e.message).error : e.message, "error");
+    }
+    setSaving(false);
+  };
+
+  const savePassword = async () => {
+    if (!currentPw) return showMsg("Enter your current password", "error");
+    if (newPw.length < 6) return showMsg("New password must be 6+ characters", "error");
+    if (newPw !== confirmPw) return showMsg("New passwords don't match", "error");
+    if (newPw === currentPw) return showMsg("New password must differ from current", "error");
+    setSaving(true);
+    try {
+      await API2.changePassword(currentPw, newPw);
+      setCurrentPw(""); setNewPw(""); setConfirmPw("");
+      showMsg("Password changed successfully ✓");
+    } catch(e) {
+      showMsg(e.message.includes("{") ? JSON.parse(e.message).error : e.message, "error");
+    }
+    setSaving(false);
+  };
+
+  const initials = (name||user.email||"?")[0].toUpperCase();
+
+  return (
+      <>
+        {/* Header */}
+        <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:"20px" }}>
+          <div style={{ color:"#F0EEF8", fontSize:"16px", fontFamily:"'Playfair Display', serif", fontWeight:700 }}>My Profile</div>
+          <button onClick={onClose} style={{ background:"rgba(255,255,255,0.06)", border:"none", borderRadius:"8px", color:"rgba(255,255,255,0.5)", cursor:"pointer", fontSize:"18px", width:"32px", height:"32px", display:"flex", alignItems:"center", justifyContent:"center" }}>×</button>
+        </div>
+
+        {/* Avatar section */}
+        <div style={{ display:"flex", alignItems:"center", gap:"16px", padding:"16px", background:"rgba(255,255,255,0.03)", borderRadius:"12px", border:"1px solid rgba(255,255,255,0.07)", marginBottom:"20px" }}>
+          <div style={{ position:"relative", flexShrink:0 }}>
+            {avatarPreview
+                ? <img src={avatarPreview} alt="avatar" style={{ width:"64px", height:"64px", borderRadius:"50%", objectFit:"cover", border:"3px solid rgba(110,86,207,0.5)" }} onError={()=>setAvatarPreview("")} />
+                : <div style={{ width:"64px", height:"64px", borderRadius:"50%", background:"linear-gradient(135deg,#6E56CF,#9B7FE8)", display:"flex", alignItems:"center", justifyContent:"center", fontSize:"24px", fontWeight:700, color:"#fff", border:"3px solid rgba(110,86,207,0.5)" }}>{initials}</div>
+            }
+            <label htmlFor="avatar-upload" style={{ position:"absolute", bottom:"-2px", right:"-2px", width:"22px", height:"22px", background:"linear-gradient(135deg,#6E56CF,#9B7FE8)", borderRadius:"50%", display:"flex", alignItems:"center", justifyContent:"center", cursor:"pointer", fontSize:"11px", border:"2px solid #0A0A12" }} title="Upload photo">
+              📷
+              <input id="avatar-upload" type="file" accept="image/*" onChange={handleFileUpload} style={{ display:"none" }} />
+            </label>
+          </div>
+          <div style={{ flex:1, minWidth:0 }}>
+            <div style={{ color:"#F0EEF8", fontSize:"14px", fontFamily:"'Playfair Display', serif", fontWeight:700, marginBottom:"2px" }}>{user.name||"—"}</div>
+            <div style={{ color:"rgba(255,255,255,0.35)", fontSize:"11px", fontFamily:"'DM Mono', monospace", marginBottom:"6px", overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{user.email}</div>
+            <div style={{ display:"flex", gap:"6px" }}>
+              <span style={{ background:user.role==="admin"?"rgba(110,86,207,0.3)":"rgba(255,255,255,0.08)", color:user.role==="admin"?"#C4B5FD":"rgba(255,255,255,0.4)", borderRadius:"4px", padding:"2px 7px", fontSize:"9px", fontFamily:"'DM Mono', monospace", letterSpacing:"0.08em" }}>{user.role==="admin"?"ADMIN":"USER"}</span>
+              <span style={{ background:"rgba(255,255,255,0.05)", color:"rgba(255,255,255,0.3)", borderRadius:"4px", padding:"2px 7px", fontSize:"9px", fontFamily:"'DM Mono', monospace" }}>{user.provider==="google"?"Google":"Email"}</span>
+            </div>
+          </div>
+        </div>
+
+        {/* Tabs */}
+        <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:"4px", background:"rgba(255,255,255,0.04)", borderRadius:"10px", padding:"4px", marginBottom:"20px" }}>
+          {[["profile","✏ Edit Profile"],["password","🔒 Password"]].map(([t,l])=>(
+              <button key={t} onClick={()=>setTab(t)} style={{ padding:"8px", borderRadius:"8px", border:"none", background:tab===t?"rgba(110,86,207,0.5)":"transparent", color:tab===t?"#F0EEF8":"rgba(255,255,255,0.35)", cursor:"pointer", fontFamily:"'DM Mono', monospace", fontSize:"11px", letterSpacing:"0.06em", transition:"all 0.15s" }}>{l}</button>
+          ))}
+        </div>
+
+        {/* Message */}
+        {msg.text && (
+            <div style={{ color:msg.type==="error"?"#FF7B7F":"#74C69D", fontSize:"11px", marginBottom:"14px", padding:"8px 12px", background:msg.type==="error"?"rgba(255,90,95,0.1)":"rgba(39,201,63,0.08)", borderRadius:"6px", border:`1px solid ${msg.type==="error"?"rgba(255,90,95,0.2)":"rgba(39,201,63,0.2)"}` }}>
+              {msg.type==="error"?"⚠":"✓"} {msg.text}
+            </div>
+        )}
+
+        {/* ── Profile Tab ── */}
+        {tab === "profile" && (
+            <div style={{ display:"grid", gap:"14px" }}>
+              <div>
+                <label style={lbl}>Display Name</label>
+                <input style={inp} value={name} onChange={e=>setName(e.target.value)} placeholder="Your full name" onFocus={fi} onBlur={fb}/>
+              </div>
+              <div>
+                <label style={lbl}>Phone Number</label>
+                <input style={inp} value={phone} onChange={e=>setPhone(e.target.value)} placeholder="+91 98765 43210" onFocus={fi} onBlur={fb}/>
+              </div>
+              <div>
+                <label style={lbl}>Bio</label>
+                <textarea style={{ ...inp, resize:"vertical", minHeight:"70px" }} value={bio} onChange={e=>setBio(e.target.value)} placeholder="A short bio about yourself…" onFocus={fi} onBlur={fb}/>
+              </div>
+              <div>
+                <label style={lbl}>Avatar URL (or upload above)</label>
+                <input style={inp} value={avatarUrl} onChange={e=>handleAvatarUrl(e.target.value)} placeholder="https://example.com/photo.jpg" onFocus={fi} onBlur={fb}/>
+              </div>
+              <button onClick={saveProfile} disabled={saving} style={{ padding:"11px", borderRadius:"8px", border:"none", background:saving?"rgba(110,86,207,0.5)":"linear-gradient(135deg,#6E56CF,#9B7FE8)", color:"#fff", cursor:saving?"not-allowed":"pointer", fontWeight:700, fontFamily:"'DM Mono', monospace", fontSize:"12px", width:"100%", opacity:saving?0.7:1 }}>
+                {saving?"Saving…":"Save Profile"}
+              </button>
+            </div>
+        )}
+
+        {/* ── Password Tab ── */}
+        {tab === "password" && (
+            user.provider === "google"
+                ? <div style={{ textAlign:"center", padding:"24px 0", color:"rgba(255,255,255,0.35)", fontFamily:"'DM Mono', monospace", fontSize:"12px", lineHeight:1.7 }}>
+                  <div style={{ fontSize:"28px", marginBottom:"10px" }}>🔗</div>
+                  Your account uses Google sign-in.<br/>Password management is handled by Google.
+                </div>
+                : <div style={{ display:"grid", gap:"14px" }}>
+                  <div>
+                    <label style={lbl}>Current Password</label>
+                    <input style={inp} type="password" value={currentPw} onChange={e=>setCurrentPw(e.target.value)} placeholder="••••••••" onFocus={fi} onBlur={fb}/>
+                  </div>
+                  <div>
+                    <label style={lbl}>New Password</label>
+                    <input style={inp} type="password" value={newPw} onChange={e=>setNewPw(e.target.value)} placeholder="Min 6 characters" onFocus={fi} onBlur={fb}/>
+                  </div>
+                  <div>
+                    <label style={lbl}>Confirm New Password</label>
+                    <input style={inp} type="password" value={confirmPw} onChange={e=>setConfirmPw(e.target.value)} placeholder="Repeat new password" onFocus={fi} onBlur={fb} onKeyDown={e=>e.key==="Enter"&&savePassword()}/>
+                  </div>
+                  {newPw.length > 0 && (
+                      <div style={{ display:"flex", gap:"6px", flexWrap:"wrap" }}>
+                        {[["6+ chars",newPw.length>=6],["Has number",/\d/.test(newPw)],["Has uppercase",/[A-Z]/.test(newPw)],["Matches",newPw===confirmPw&&confirmPw.length>0]].map(([label,ok])=>(
+                            <span key={label} style={{ background:ok?"rgba(39,201,63,0.1)":"rgba(255,255,255,0.05)", color:ok?"#74C69D":"rgba(255,255,255,0.25)", borderRadius:"4px", padding:"2px 8px", fontSize:"9px", fontFamily:"'DM Mono', monospace", border:`1px solid ${ok?"rgba(39,201,63,0.2)":"rgba(255,255,255,0.07)"}` }}>{ok?"✓":"·"} {label}</span>
+                        ))}
+                      </div>
+                  )}
+                  <button onClick={savePassword} disabled={saving} style={{ padding:"11px", borderRadius:"8px", border:"none", background:saving?"rgba(110,86,207,0.5)":"linear-gradient(135deg,#6E56CF,#9B7FE8)", color:"#fff", cursor:saving?"not-allowed":"pointer", fontWeight:700, fontFamily:"'DM Mono', monospace", fontSize:"12px", width:"100%", opacity:saving?0.7:1 }}>
+                    {saving?"Updating…":"Change Password"}
+                  </button>
+                </div>
+        )}
+      </>
+  );
+}
 
 // ── Styles ────────────────────────────────────────────────────────────────────
 const inp = { background:"rgba(255,255,255,0.05)", border:"1px solid rgba(255,255,255,0.1)", borderRadius:"8px", color:"#F0EEF8", padding:"10px 14px", fontSize:"13px", fontFamily:"'DM Mono', monospace", width:"100%", outline:"none", boxSizing:"border-box" };
@@ -609,6 +788,7 @@ export default function App() {
   const [dbError,setDbError]       = useState("");
   const [modalState,setModalState] = useState(null);
   const [activeTab,setActiveTab]   = useState("calendar"); // calendar | dashboard | admin
+  const [showProfile,setShowProfile] = useState(false);
 
   useEffect(()=>{
     const token=getToken();
@@ -733,11 +913,16 @@ export default function App() {
           </div>
           <div style={{ display:"flex",alignItems:"center",gap:"10px" }}>
             <StatusBadge status={status}/>
-            {user.avatar&&<img src={user.avatar} alt="" style={{ width:"28px",height:"28px",borderRadius:"50%",border:"2px solid rgba(110,86,207,0.5)" }}/>}
-            <div style={{ display:"flex",alignItems:"center",gap:"4px" }}>
-              <span style={{ color:"rgba(255,255,255,0.4)",fontSize:"10px",maxWidth:"120px",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap" }}>{user.name||user.email}</span>
+            {/* Clickable profile button */}
+            <button onClick={()=>setShowProfile(true)} title="Edit profile" style={{ display:"flex",alignItems:"center",gap:"8px",background:"rgba(255,255,255,0.04)",border:"1px solid rgba(255,255,255,0.08)",borderRadius:"20px",padding:"4px 12px 4px 4px",cursor:"pointer",transition:"background 0.15s" }}
+                    onMouseEnter={e=>e.currentTarget.style.background="rgba(255,255,255,0.08)"} onMouseLeave={e=>e.currentTarget.style.background="rgba(255,255,255,0.04)"}>
+              {user.avatar
+                  ? <img src={user.avatar} alt="" style={{ width:"24px",height:"24px",borderRadius:"50%",border:"2px solid rgba(110,86,207,0.5)",objectFit:"cover" }}/>
+                  : <div style={{ width:"24px",height:"24px",borderRadius:"50%",background:"linear-gradient(135deg,#6E56CF,#9B7FE8)",display:"flex",alignItems:"center",justifyContent:"center",fontSize:"11px",fontWeight:700,color:"#fff" }}>{(user.name||user.email||"?")[0].toUpperCase()}</div>
+              }
+              <span style={{ color:"rgba(255,255,255,0.5)",fontSize:"10px",fontFamily:"'DM Mono', monospace",maxWidth:"100px",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap" }}>{user.name||user.email}</span>
               {user.role==="admin"&&<span style={{ background:"rgba(110,86,207,0.3)",color:"#C4B5FD",borderRadius:"4px",padding:"1px 5px",fontSize:"8px",letterSpacing:"0.08em" }}>ADMIN</span>}
-            </div>
+            </button>
             <button onClick={handleLogout} style={{ background:"rgba(255,90,95,0.1)",border:"1px solid rgba(255,90,95,0.2)",borderRadius:"8px",color:"#FF7B7F",cursor:"pointer",padding:"4px 10px",fontSize:"10px",fontFamily:"'DM Mono', monospace" }}>Sign out</button>
           </div>
         </div>
@@ -846,6 +1031,15 @@ export default function App() {
             </div>
           </>}
         </div>
+
+        {/* Profile Modal */}
+        <Modal isOpen={showProfile} onClose={()=>setShowProfile(false)}>
+          <ProfileModal
+              user={user}
+              onClose={()=>setShowProfile(false)}
+              onUpdate={(updatedUser)=>{ setUser(updatedUser); setShowProfile(false); }}
+          />
+        </Modal>
 
         {/* Modals */}
         <Modal isOpen={modalState?.type==="addUnit"} onClose={()=>setModalState(null)}>
