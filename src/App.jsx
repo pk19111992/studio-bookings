@@ -70,7 +70,7 @@ async function apiFetch(path, opts={}) {
   return res.json();
 }
 
-// ── FIXED API INTERACTION MATRIX WITH UNIFIED AUTH PASSING ──
+// ── FIXED API INTERACTION PATHWAYS TO ELIMINATE 404 CONFLICTS ──
 const API2 = {
   verify:          ()           => apiFetch("/auth?action=verify"),
   login:           (e,p)        => apiFetch("/auth?action=login",           { method:"POST", body:JSON.stringify({email:e,password:p}) }),
@@ -78,7 +78,9 @@ const API2 = {
   googleUrl:       ()           => `${API}/auth?action=google`,
   updateProfile:   (data)       => apiFetch("/auth?action=profile",         { method:"PATCH", body:JSON.stringify(data) }),
   changePassword:  (cur,nw)     => apiFetch("/auth?action=change-password", { method:"POST",  body:JSON.stringify({currentPassword:cur,newPassword:nw}) }),
-  allUsers:        ()           => apiFetch("/bookings?action=users"),
+
+  // All booking manager operations route through the /bookings handler pipeline explicitly
+  allUsers:        ()           => apiFetch("/auth?action=users"),
   units:           ()           => apiFetch("/bookings?action=units"),
   addUnit:         (n,l)        => apiFetch("/bookings?action=units",        { method:"POST", body:JSON.stringify({name:n,location:l}) }),
   bookings:        (uid)        => apiFetch(`/bookings?action=bookings&unit_id=${encodeURIComponent(uid)}`),
@@ -93,7 +95,6 @@ const API2 = {
   revokePerm:      (uid,userId) => apiFetch(`/bookings?action=permissions&unit_id=${encodeURIComponent(uid)}&user_id=${userId}`, { method:"DELETE" }),
 };
 
-// Original CSS parameters
 const inp = { background:"rgba(255,255,255,0.05)", border:"1px solid rgba(255,255,255,0.1)", borderRadius:"8px", color:"#F0EEF8", padding:"10px 14px", fontSize:"13px", fontFamily:"'DM Mono', monospace", width:"100%", outline:"none", boxSizing:"border-box" };
 const lbl = { color:"rgba(255,255,255,0.45)", fontSize:"10px", fontFamily:"'DM Mono', monospace", letterSpacing:"0.1em", textTransform:"uppercase", display:"block", marginBottom:"5px" };
 const card = { background:"rgba(255,255,255,0.03)", border:"1px solid rgba(255,255,255,0.07)", borderRadius:"12px", padding:"16px" };
@@ -161,16 +162,16 @@ function AdminPanel({ units }) {
   const [perms, setPerms]       = useState([]);
   const [loading, setLoading]   = useState(false);
 
-  useEffect(()=>{ API2.allUsers().then(setUsers).catch(()=>{}); },[]);
-  useEffect(()=>{ if(selUnit) API2.getPerms(selUnit).then(setPerms).catch(()=>{}); },[selUnit]);
+  useEffect(()=>{ API2.allUsers().then(res => setUsers(res || [])).catch(()=>{}); },[]);
+  useEffect(()=>{ if(selUnit) API2.getPerms(selUnit).then(res => setPerms(res || [])).catch(()=>{}); },[selUnit]);
 
   const grant = async(userId)=>{
     setLoading(true); await API2.grantPerm(selUnit,userId);
-    API2.getPerms(selUnit).then(setPerms); setLoading(false);
+    API2.getPerms(selUnit).then(res => setPerms(res || [])); setLoading(false);
   };
   const revoke = async(userId)=>{
     setLoading(true); await API2.revokePerm(selUnit,userId);
-    API2.getPerms(selUnit).then(setPerms); setLoading(false);
+    API2.getPerms(selUnit).then(res => setPerms(res || [])); setLoading(false);
   };
 
   return (
@@ -315,7 +316,7 @@ function BookingBadge({ booking, onClick, sourceMap }) {
 }
 
 function BookingForm({ date, unit, onSave, onClose, editBooking, allSources }) {
-  const [form,setForm] = useState(editBooking || { guest_name: editBooking?.guest_name || editBooking?.guestName || "", source:"direct", start_date: editBooking?.start_date || date, end_date: editBooking?.end_date || date, check_in: editBooking?.check_in || editBooking?.checkIn || "14:00", check_out: editBooking?.check_out || editBooking?.checkOut || "11:00", amount: editBooking?.amount || "", guest_phone: editBooking?.guest_phone || "", guest_count: editBooking?.guest_count || "1", status: editBooking?.status || "confirmed", payment_status: editBooking?.payment_status || "pending", payment_method: editBooking?.payment_method || "UPI", notes: editBooking?.notes ||" " });
+  const [form,setForm] = useState(editBooking || { guest_name: editBooking?.guest_name || editBooking?.guestName || "", source:"direct", start_date: editBooking?.start_date || date, end_date: editBooking?.end_date || date, check_in: editBooking?.check_in || editBooking?.checkIn || "14:00", check_out: editBooking?.check_out || editBooking?.checkOut || "11:00", amount: editBooking?.amount || "", guest_phone: editBooking?.guest_phone || "", guest_count: editBooking?.guest_count || "1", status: editBooking?.status || "confirmed", payment_status: editBooking?.payment_status || "pending", payment_method: editBooking?.payment_method || "UPI", notes: editBooking?.notes || "" });
   const [error,setError]=useState("");
 
   const handleSave=async()=>{
