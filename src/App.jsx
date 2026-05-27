@@ -70,6 +70,7 @@ async function apiFetch(path, opts={}) {
   return res.json();
 }
 
+// ── FIXED API INTERACTION MATRIX WITH UNIFIED AUTH PASSING ──
 const API2 = {
   verify:          ()           => apiFetch("/auth?action=verify"),
   login:           (e,p)        => apiFetch("/auth?action=login",           { method:"POST", body:JSON.stringify({email:e,password:p}) }),
@@ -92,7 +93,7 @@ const API2 = {
   revokePerm:      (uid,userId) => apiFetch(`/bookings?action=permissions&unit_id=${encodeURIComponent(uid)}&user_id=${userId}`, { method:"DELETE" }),
 };
 
-// ── STYLES FROM ORIGINAL UI ───────────────────────────────────────────────────
+// Original CSS parameters
 const inp = { background:"rgba(255,255,255,0.05)", border:"1px solid rgba(255,255,255,0.1)", borderRadius:"8px", color:"#F0EEF8", padding:"10px 14px", fontSize:"13px", fontFamily:"'DM Mono', monospace", width:"100%", outline:"none", boxSizing:"border-box" };
 const lbl = { color:"rgba(255,255,255,0.45)", fontSize:"10px", fontFamily:"'DM Mono', monospace", letterSpacing:"0.1em", textTransform:"uppercase", display:"block", marginBottom:"5px" };
 const card = { background:"rgba(255,255,255,0.03)", border:"1px solid rgba(255,255,255,0.07)", borderRadius:"12px", padding:"16px" };
@@ -109,9 +110,7 @@ function Modal({ isOpen, onClose, children, wide }) {
   );
 }
 
-// ── PROFILE MODAL COMPONENT ───────────────────────────────────────────────────
 function ProfileModal({ user, onClose, onUpdate }) {
-  const [tab, setTab]           = useState("profile");
   const [name, setName]         = useState(user.name||"");
   const [bio, setBio]           = useState(user.bio||"");
   const [phone, setPhone]       = useState(user.phone||"");
@@ -156,7 +155,6 @@ function ProfileModal({ user, onClose, onUpdate }) {
   );
 }
 
-// ── ADMIN PANEL COMPONENT ─────────────────────────────────────────────────────
 function AdminPanel({ units }) {
   const [users, setUsers]       = useState([]);
   const [selUnit, setSelUnit]   = useState(units[0]?.id||"");
@@ -205,7 +203,6 @@ function AdminPanel({ units }) {
   );
 }
 
-// ── ADD PROPERTY UNIT MODAL COMPONENT ─────────────────────────────────────────
 function AddUnitModal({ onAdd, onClose }) {
   const [name,setName]=useState("");
   const [location,setLoc]=useState("");
@@ -228,44 +225,6 @@ function AddUnitModal({ onAdd, onClose }) {
           <button onClick={handleAdd} disabled={saving||!name.trim()} style={{ flex:1,padding:"10px",borderRadius:"8px",border:"none",background:"linear-gradient(135deg,#6E56CF,#9B7FE8)",color:"#fff",fontWeight:700 }}>Add Property Unit</button>
         </div>
       </>
-  );
-}
-
-function LoginPage({ onLogin }) {
-  const [email,setEmail]=useState("");
-  const [password,setPassword]=useState("");
-  const [error,setError]=useState("");
-  const [loading,setLoading]=useState(false);
-
-  const submit=async()=>{
-    setError(""); setLoading(true);
-    try {
-      const r=await API2.login(email,password);
-      setToken(r.token); onLogin(r.user);
-    } catch(e){ setError(e.message.includes("{")?JSON.parse(e.message).error:e.message); }
-    setLoading(false);
-  };
-
-  return (
-      <div style={{ minHeight:"100vh",background:"#0A0A12",display:"flex",alignItems:"center",justifyContent:"center",fontFamily:"'DM Mono', monospace",padding:"16px" }}>
-        <div style={{ width:"100%",maxWidth:"400px" }}>
-          <div style={{ textAlign:"center",marginBottom:"28px" }}>
-            <div style={{ fontSize:"36px",marginBottom:"8px" }}>🏢</div>
-            <div style={{ color:"#F0EEF8",fontSize:"22px",fontFamily:"'Playfair Display', serif",fontWeight:900 }}>Gaur City</div>
-            <div style={{ color:"rgba(255,255,255,0.3)",fontSize:"10px",letterSpacing:"0.2em",textTransform:"uppercase" }}>Booking Manager</div>
-          </div>
-          <div style={{ background:"rgba(255,255,255,0.03)",border:"1px solid rgba(255,255,255,0.08)",borderRadius:"16px",padding:"28px" }}>
-            <div style={{ display:"grid",gap:"12px" }}>
-              <div><label style={lbl}>Email</label><input style={inp} type="email" value={email} onChange={e=>setEmail(e.target.value)} placeholder="you@example.com"/></div>
-              <div><label style={lbl}>Password</label><input style={inp} type="password" value={password} onChange={e=>setPassword(e.target.value)} placeholder="••••••••" onKeyDown={e=>e.key==="Enter"&&submit()}/></div>
-            </div>
-            {error&&<div style={{ color:"#FF7B7F",fontSize:"11px",marginTop:"12px",padding:"8px 12px",background:"rgba(255,90,95,0.1)",borderRadius:"6px",border:"1px solid rgba(255,90,95,0.2)" }}>⚠ {error}</div>}
-            <button onClick={submit} disabled={loading} style={{ padding:"11px",borderRadius:"8px",border:"none",background:"linear-gradient(135deg,#6E56CF,#9B7FE8)",color:"#fff",cursor:"pointer",fontWeight:700,width:"100%",marginTop:"20px" }}>
-              {loading?"Please wait…":"Sign In"}
-            </button>
-          </div>
-        </div>
-      </div>
   );
 }
 
@@ -356,7 +315,7 @@ function BookingBadge({ booking, onClick, sourceMap }) {
 }
 
 function BookingForm({ date, unit, onSave, onClose, editBooking, allSources }) {
-  const [form,setForm] = useState(editBooking || { guest_name: editBooking?.guest_name || editBooking?.guestName || "", source:"direct", start_date: editBooking?.start_date || date, end_date: editBooking?.end_date || date, check_in: editBooking?.check_in || editBooking?.checkIn || "14:00", check_out: editBooking?.check_out || editBooking?.checkOut || "11:00", amount: editBooking?.amount || "", guest_phone: editBooking?.guest_phone || "", guest_count: editBooking?.guest_count || "1", status: editBooking?.status || "confirmed", payment_status: editBooking?.payment_status || "pending", payment_method: editBooking?.payment_method || "UPI", notes: editBooking?.notes || "" });
+  const [form,setForm] = useState(editBooking || { guest_name: editBooking?.guest_name || editBooking?.guestName || "", source:"direct", start_date: editBooking?.start_date || date, end_date: editBooking?.end_date || date, check_in: editBooking?.check_in || editBooking?.checkIn || "14:00", check_out: editBooking?.check_out || editBooking?.checkOut || "11:00", amount: editBooking?.amount || "", guest_phone: editBooking?.guest_phone || "", guest_count: editBooking?.guest_count || "1", status: editBooking?.status || "confirmed", payment_status: editBooking?.payment_status || "pending", payment_method: editBooking?.payment_method || "UPI", notes: editBooking?.notes ||" " });
   const [error,setError]=useState("");
 
   const handleSave=async()=>{
@@ -480,32 +439,12 @@ export default function App() {
   const allSources = useMemo(() => [...BASE_SOURCES, ...customSources], [customSources]);
   const sourceMap = useMemo(() => Object.fromEntries(allSources.map(s => [s.id, s])), [allSources]);
 
-  useEffect(()=>{
-    const token=getToken();
-    if(!token){setAuthChecked(true);return;}
-    API2.verify().then(r=>{
-      setUser(r.user);
-      setAuthChecked(true);
-      API2.sources().then(srcs => setCustomSources(Array.isArray(srcs) ? srcs : []));
-    }).catch(()=>{setToken(null);setAuthChecked(true);});
-  },[]);
-
-  useEffect(()=>{
-    if(!user) return;
-    API2.units().then(list=>{
-      setUnits(list||[]);
-      if(list?.length) setSelectedUnit(list[0]);
-      setStatus("saved");
-    }).catch(()=>setStatus("error"));
-  },[user]);
-
   const loadBookings = useCallback(()=>{
     if(!selectedUnit) return;
     setStatus("loading");
     API2.bookings(selectedUnit.id).then(rows=>{
       const map={};
       (rows||[]).forEach(row => {
-        // Safe mapping alignment handles both old 'date' key and new multi-night range keys seamlessly
         const start = row.start_date || row.date;
         const end = row.end_date || row.date;
         const stayDates = getDatesInRange(start, end);
@@ -517,6 +456,25 @@ export default function App() {
       setBookings(map); setStatus("saved");
     }).catch(()=>setStatus("error"));
   },[selectedUnit]);
+
+  useEffect(()=>{
+    const token=getToken();
+    if(!token){setAuthChecked(true);return;}
+    API2.verify().then(r=>{
+      setUser(r.user);
+      setAuthChecked(true);
+      API2.sources().then(srcs => setCustomSources(Array.isArray(srcs) ? srcs : [])).catch(()=>setStatus("error"));
+    }).catch(()=>{setToken(null);setAuthChecked(true);});
+  },[]);
+
+  useEffect(()=>{
+    if(!user) return;
+    API2.units().then(list=>{
+      setUnits(list||[]);
+      if(list?.length) setSelectedUnit(list[0]);
+      setStatus("saved");
+    }).catch(()=>setStatus("error"));
+  },[user]);
 
   useEffect(()=>{ loadBookings(); },[loadBookings]);
 
@@ -550,13 +508,14 @@ export default function App() {
       setUnits(list || []);
       if(list?.length) setSelectedUnit(list[list.length - 1]);
     } catch(e) { setStatus("error"); }
+    setModalState(null);
   };
 
   const runChannelSync = async () => {
     if (!selectedUnit) return;
     setSyncing(true); setStatus("loading");
     try {
-      const res = await API2.syncICal(selectedUnit.id);
+      await API2.syncICal(selectedUnit.id);
       alert(`Sync finished! Imported external events.`);
       loadBookings();
     } catch (e) {
@@ -577,7 +536,6 @@ export default function App() {
 
   const monthPrefix=`${currentYear}-${String(currentMonth+1).padStart(2,"0")}`;
   const monthBks = Object.entries(bookings).filter(([d])=>d.startsWith(monthPrefix)).flatMap(([,l])=>l);
-  // Filter out any duplicated references stemming from continuous range array spans inside standard aggregation loops
   const uniqueMonthBookings = Array.from(new Map(monthBks.map(b => [b.id, b])).values());
   const totalRevenue = uniqueMonthBookings.filter(b => b.status !== "cancelled").reduce((s,b)=>s+Number(b.amount||0),0);
 
@@ -588,7 +546,7 @@ export default function App() {
         @keyframes fadeIn{from{opacity:0}to{opacity:1}} @keyframes slideUp{from{opacity:0;transform:translateY(28px) scale(0.97)}to{opacity:1;transform:translateY(0) scale(1)}}
       `}</style>
 
-        {/* ── RESTORED HEADER NAVIGATION WITH ADMIN TAB VISIBILITY ── */}
+        {/* Header navigation element loops */}
         <div style={{ background:"rgba(255,255,255,0.02)",borderBottom:"1px solid rgba(255,255,255,0.06)",padding:"12px 24px",display:"flex",alignItems:"center",justifyContent:"space-between",flexWrap:"wrap",gap:"10px" }}>
           <div style={{ display:"flex",alignItems:"center",gap:"12px" }}>
             <span style={{ fontSize:"22px" }}>🏢</span>
@@ -602,7 +560,6 @@ export default function App() {
           <div style={{ display:"flex",alignItems:"center",gap:"10px" }}>
             <StatusBadge status={status}/>
 
-            {/* RESTORED PROFILE MANAGEMENT HOOK BUTTON */}
             <button onClick={()=>setShowProfile(true)} style={{ display:"flex",alignItems:"center",gap:"8px",background:"rgba(255,255,255,0.04)",border:"1px solid rgba(255,255,255,0.08)",borderRadius:"20px",padding:"4px 12px",cursor:"pointer" }}>
               <div style={{ width:"16px",height:"16px",borderRadius:"50%",background:"#6E56CF",fontSize:"9px",display:"flex",alignItems:"center",justifyContent:"center",color:"#fff" }}>{(user.name||user.email)[0].toUpperCase()}</div>
               <span style={{ color:"rgba(255,255,255,0.5)",fontSize:"10px" }}>{user.name || user.email}</span>
@@ -615,7 +572,7 @@ export default function App() {
           </div>
         </div>
 
-        {/* ── PROPERTY UNIT BAR WITH ADD UNIT RESTORED ── */}
+        {/* Property unit bar container layout */}
         <div style={{ background:"rgba(110,86,207,0.05)",borderBottom:"1px solid rgba(110,86,207,0.12)",padding:"10px 24px",display:"flex",alignItems:"center",gap:"8px",flexWrap:"wrap" }}>
           {units.map(u=>(
               <button key={u.id} onClick={()=>setSelectedUnit(u)} style={{ padding:"5px 14px",borderRadius:"20px",border:`1px solid ${selectedUnit?.id===u.id?"rgba(110,86,207,0.7)":"rgba(255,255,255,0.1)"}`,background:selectedUnit?.id===u.id?"rgba(110,86,207,0.2)":"transparent",color:selectedUnit?.id===u.id?"#C4B5FD":"rgba(255,255,255,0.4)",cursor:"pointer" }}>
@@ -630,7 +587,6 @@ export default function App() {
           {activeTab==="admin" && user.role==="admin" && <AdminPanel units={units}/>}
 
           {activeTab==="calendar" && <>
-            {/* Stats Overview Grid Widget Block */}
             <div style={{ display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:"10px",marginBottom:"20px" }}>
               {[
                 {label:"Bookings",   value:uniqueMonthBookings.filter(x=>x.status!=="cancelled").length, accent:"#C4B5FD"},
@@ -656,7 +612,6 @@ export default function App() {
                 </div>
             )}
 
-            {/* Calendar Controls Layout */}
             <div style={{ background:"rgba(255,255,255,0.025)",border:"1px solid rgba(255,255,255,0.08)",borderRadius:"16px 16px 0 0",padding:"16px 22px",display:"flex",alignItems:"center",justifyContent:"space-between" }}>
               <button onClick={prevMonth} style={{ background:"rgba(255,255,255,0.06)",border:"none",borderRadius:"8px",color:"rgba(255,255,255,0.5)",cursor:"pointer",width:"34px",height:"34px",fontSize:"16px" }}>‹</button>
               <div style={{ textAlign:"center" }}>
@@ -691,12 +646,10 @@ export default function App() {
           </>}
         </div>
 
-        {/* Profile Modal Hook */}
         <Modal isOpen={showProfile} onClose={()=>setShowProfile(false)}>
           <ProfileModal user={user} onClose={()=>setShowProfile(false)} onUpdate={(u)=>{setUser(u); setShowProfile(false);}}/>
         </Modal>
 
-        {/* Action Form Hooks */}
         <Modal isOpen={modalState?.type==="addUnit"} onClose={()=>setModalState(null)}>
           <AddUnitModal onAdd={handleAddUnit} onClose={()=>setModalState(null)}/>
         </Modal>
