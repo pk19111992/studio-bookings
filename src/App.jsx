@@ -683,8 +683,9 @@ function Dashboard({ units, user }) {
       byStatus[b.status]=(byStatus[b.status]||0)+1;
       totalRev+=Number(b.total_amount||0); netRev+=Number(b.net_revenue||b.total_amount||0);
       totalNights+=Number(b.nights||1); totalDue+=Math.max(0,Number(b.total_amount||0)-Number(b.paid_amount||0));
-      // For occupancy — mark all dates in range
-      const ci=new Date(b.checkin_date), co=new Date(b.checkout_date);
+      // Mark all dates in booking range for occupancy calc
+      const ci=new Date(b.checkin_date);
+      const co=b.checkin_date===b.checkout_date ? new Date(ci.getTime()+86400000) : new Date(b.checkout_date);
       for(let d=new Date(ci); d<co; d.setDate(d.getDate()+1)){
         const k=d.toISOString().slice(0,10);
         if(k.startsWith(mStr)){if(!byDate[k])byDate[k]=[];byDate[k].push(b);}
@@ -701,8 +702,10 @@ function Dashboard({ units, user }) {
     const map={};
     for(let d=1;d<=dim;d++){const k=fmtDate(year,month,d);map[k]=0;}
     data.filter(b=>b.status!=="cancelled").forEach(b=>{
-      const ci=new Date(b.checkin_date), co=new Date(b.checkout_date);
-      const nights=calcNights(b.checkin_date,b.checkout_date);
+      const ci=new Date(b.checkin_date);
+      const isSameDay = b.checkin_date===b.checkout_date;
+      const co = isSameDay ? new Date(ci.getTime()+86400000) : new Date(b.checkout_date);
+      const nights=calcNights(b.checkin_date, isSameDay ? addDays(b.checkout_date,1) : b.checkout_date);
       const perN=nights>0?Number(b.total_amount||0)/nights:Number(b.total_amount||0);
       for(let d=new Date(ci);d<co;d.setDate(d.getDate()+1)){
         const k=d.toISOString().slice(0,10);
@@ -1101,9 +1104,12 @@ export default function App() {
     API.getBookings(selUnit.id).then(rows=>{
       const map={};
       (rows||[]).forEach(b=>{
-        // Index by every date in the booking range for calendar display
-        const ci=new Date(b.checkin_date), co=new Date(b.checkout_date);
-        for(let d=new Date(ci);d<co;d.setDate(d.getDate()+1)){
+        const ci = new Date(b.checkin_date);
+        const co = new Date(b.checkout_date);
+        // Same-day or single-night: always show on checkin_date
+        const isSameDay = b.checkin_date === b.checkout_date;
+        const endDate = isSameDay ? new Date(ci.getTime() + 86400000) : co;
+        for(let d=new Date(ci); d<endDate; d.setDate(d.getDate()+1)){
           const k=d.toISOString().slice(0,10);
           if(!map[k]) map[k]=[];
           if(!map[k].find(x=>x.id===b.id)) map[k].push(b);
@@ -1126,8 +1132,11 @@ export default function App() {
     const rows=await API.getBookings(selUnit.id);
     const map={};
     (rows||[]).forEach(b=>{
-      const ci=new Date(b.checkin_date), co=new Date(b.checkout_date);
-      for(let d=new Date(ci);d<co;d.setDate(d.getDate()+1)){
+      const ci = new Date(b.checkin_date);
+      const co = new Date(b.checkout_date);
+      const isSameDay = b.checkin_date === b.checkout_date;
+      const endDate = isSameDay ? new Date(ci.getTime() + 86400000) : co;
+      for(let d=new Date(ci); d<endDate; d.setDate(d.getDate()+1)){
         const k=d.toISOString().slice(0,10);
         if(!map[k]) map[k]=[];
         if(!map[k].find(x=>x.id===b.id)) map[k].push(b);
@@ -1181,9 +1190,23 @@ export default function App() {
   if(!user) return <LoginPage onLogin={u=>setUser(u)}/>;
 
   const mPfx=`${year}-${String(month+1).padStart(2,"0")}`;
-  // Month bookings — deduplicated
-  const allMBks=Object.entries(bookings).filter(([d])=>d.startsWith(mPfx)).flatMap(([,l])=>l);
-  const mBks=[...new Map(allMBks.map(b=>[b.id,b])).values()].filter(b=>b.status!=="cancelled");
+  const mStart = `${mPfx}-01`;
+  const mEnd   = `${year}-${String(month+1).padStart(2,"0")}-${String(new Date(year,month+1,0).getDate()).padStart(2,"0")}`;
+
+  // Include all bookings that overlap with this month
+  // A booking overlaps if checkin_date <= mEnd AND checkout_date >= mStart
+  // For same-day bookings (checkin=checkout), treat checkout as checkin+1
+  const allBookingsList = [...new Map(
+      Object.values(bookings).flat().map(b=>[b.id,b])
+  ).values()];
+
+  const mBks = allBookingsList.filter(b => {
+    if (b.status === "cancelled") return false;
+    const ci = b.checkin_date;
+    const co = b.checkin_date === b.checkout_date ? addDays(b.checkout_date,1) : b.checkout_date;
+    return ci <= mEnd && co > mStart;
+  });
+
   const totalRev=mBks.reduce((s,b)=>s+Number(b.total_amount||0),0);
   const totalDue=mBks.reduce((s,b)=>s+Math.max(0,Number(b.total_amount||0)-Number(b.paid_amount||0)),0);
 
@@ -1262,7 +1285,14 @@ export default function App() {
                 {l:"Nights",     v:mBks.reduce((s,b)=>s+Number(b.nights||1),0),   a:"#60A5FA"},
                 {l:"Occupancy",  v:(()=>{
                     const bd={};
-                    mBks.forEach(b=>{const ci=new Date(b.checkin_date),co=new Date(b.checkout_date);for(let d=new Date(ci);d<co;d.setDate(d.getDate()+1)){const k=d.toISOString().slice(0,10);if(k.startsWith(mPfx)){if(!bd[k])bd[k]=[];bd[k].push(b);}}});
+                    mBks.forEach(b=>{
+                      const ci=new Date(b.checkin_date);
+                      const co=b.checkin_date===b.checkout_date ? new Date(ci.getTime()+86400000) : new Date(b.checkout_date);
+                      for(let d=new Date(ci);d<co;d.setDate(d.getDate()+1)){
+                        const k=d.toISOString().slice(0,10);
+                        if(k.startsWith(mPfx)){if(!bd[k])bd[k]=[];bd[k].push(b);}
+                      }
+                    });
                     const occ=Object.values(bd).reduce((s,bks)=>s+getDayOccupancy(bks),0);
                     return `${Math.round(occ/dim*100)}%`;
                   })(), a:"#FCA5A5"},
