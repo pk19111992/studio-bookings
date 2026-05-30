@@ -1,667 +1,1369 @@
 import { useState, useEffect, useCallback, useMemo } from "react";
 
+// ── Constants ─────────────────────────────────────────────────────────────────
 const MONTHS = ["January","February","March","April","May","June","July","August","September","October","November","December"];
 const DAYS   = ["Sun","Mon","Tue","Wed","Thu","Fri","Sat"];
-
-// Core unalterable channels across all users
-const BASE_SOURCES = [
-  { id:"direct",  label:"Direct",       icon:"🤝", color:"#60A5FA" },
-  { id:"airbnb",  label:"Airbnb",       icon:"✈",  color:"#FF385C" },
-  { id:"goibibo", label:"GoIbibo/MMT",  icon:"🏨", color:"#F59E0B" },
+const SOURCES = [
+  { id:"direct",  label:"Direct",      icon:"🤝", color:"#60A5FA", commission:0 },
+  { id:"airbnb",  label:"Airbnb",      icon:"✈",  color:"#FF385C", commission:3 },
+  { id:"goibibo", label:"GoIbibo/MMT", icon:"🏨", color:"#F59E0B", commission:18 },
+  { id:"ekant",   label:"Ekant",       icon:"👤", color:"#A78BFA", commission:0 },
+  { id:"urmit",   label:"Urmit",       icon:"👤", color:"#34D399", commission:0 },
 ];
+const SRC = Object.fromEntries(SOURCES.map(s=>[s.id,s]));
+const CAPPED = ["direct","airbnb","goibibo","urmit"];
 
-const BOOKING_STATUSES = [
-  { id: "enquiry", label: "Enquiry", color: "#9CA3AF" },
-  { id: "confirmed", label: "Confirmed", color: "#3B82F6" },
-  { id: "checked_in", label: "Checked In", color: "#10B981" },
-  { id: "checked_out", label: "Checked Out", color: "#6B7280" },
-  { id: "cancelled", label: "Cancelled", color: "#EF4444" }
+const STATUSES = [
+  { id:"enquiry",    label:"Enquiry",     color:"#94A3B8" },
+  { id:"confirmed",  label:"Confirmed",   color:"#60A5FA" },
+  { id:"checked_in", label:"Checked In",  color:"#34D399" },
+  { id:"checked_out",label:"Checked Out", color:"#A78BFA" },
+  { id:"cancelled",  label:"Cancelled",   color:"#FF5A5F" },
 ];
+const ST = Object.fromEntries(STATUSES.map(s=>[s.id,s]));
 
-const PAYMENT_STATUSES = [
-  { id: "pending", label: "Pending", color: "#F59E0B" },
-  { id: "partially_paid", label: "Partially Paid", color: "#10B981" },
-  { id: "paid", label: "Paid", color: "#059669" },
-  { id: "refunded", label: "Refunded", color: "#EF4444" }
+const PAY_STATUSES = [
+  { id:"pending",  label:"Pending",  color:"#F59E0B" },
+  { id:"partial",  label:"Partial",  color:"#60A5FA" },
+  { id:"paid",     label:"Paid",     color:"#34D399" },
+  { id:"refunded", label:"Refunded", color:"#FF5A5F" },
 ];
+const PS = Object.fromEntries(PAY_STATUSES.map(s=>[s.id,s]));
 
-function isHalfDay(booking) {
-  if (["ekant","urmit","direct"].includes(booking.source)) {
-    return Number(booking.amount) <= 1500;
-  }
-  return false;
+const PAY_METHODS = ["cash","upi","bank_transfer","online","other"];
+const ID_TYPES    = ["aadhaar","passport","driving_license","voter_id","other"];
+
+// ── Helpers ───────────────────────────────────────────────────────────────────
+function fmtDate(y,m,d)  { return `${y}-${String(m+1).padStart(2,"0")}-${String(d).padStart(2,"0")}`; }
+function uid()           { return crypto.randomUUID ? crypto.randomUUID() : Math.random().toString(36).substr(2,12); }
+function getToken()      { return localStorage.getItem("gcbm_token"); }
+function setToken(t)     { t ? localStorage.setItem("gcbm_token",t) : localStorage.removeItem("gcbm_token"); }
+function addDays(dateStr,n) { const d=new Date(dateStr); d.setDate(d.getDate()+n); return d.toISOString().slice(0,10); }
+function calcNights(ci,co)  { const n=Math.round((new Date(co)-new Date(ci))/86400000); return Math.max(n,1); }
+function inrFmt(n)       { return `₹${Number(n||0).toLocaleString("en-IN")}`; }
+
+function isHalfDay(b) {
+  return ["ekant","urmit","direct"].includes(b.source) && Number(b.total_amount||b.amount_per_night||0) <= 1500 && (b.nights||1) === 1;
+}
+function getDayOccupancy(dayBks) {
+  const capped = dayBks.filter(b=>CAPPED.includes(b.source));
+  const ekant  = dayBks.filter(b=>b.source==="ekant");
+  let occ = Math.min(capped.reduce((s,b)=>s+(isHalfDay(b)?0.5:1),0),1);
+  occ += ekant.reduce((s,b)=>s+(isHalfDay(b)?0.5:1),0);
+  return Math.min(occ,1);
 }
 
-function getDatesInRange(startDate, endDate) {
-  const start = new Date(startDate);
-  const end = new Date(endDate);
-  const dates = [];
-  while (start <= end) {
-    dates.push(start.toISOString().split("T")[0]);
-    start.setDate(start.getDate() + 1);
-  }
-  return dates;
-}
-
-function getDayOccupancy(dayBookings) {
-  const active = dayBookings.filter(b => b.status !== "cancelled");
-  const capped = active.filter(b => ["direct","airbnb","goibibo","urmit"].includes(b.source));
-  const ekant  = active.filter(b => b.source === "ekant");
-  let cappedDays = capped.reduce((sum, b) => sum + (isHalfDay(b) ? 0.5 : 1), 0);
-  cappedDays = Math.min(cappedDays, 1);
-  const ekantDays = ekant.reduce((sum, b) => sum + (isHalfDay(b) ? 0.5 : 1), 0);
-  return Math.min(cappedDays + ekantDays, 1);
-}
-
-function fmt(y,m,d) { return `${y}-${String(m+1).padStart(2,"0")}-${String(d).padStart(2,"0")}`; }
-function uid()      { return crypto.randomUUID ? crypto.randomUUID() : Math.random().toString(36).substr(2,12); }
-function getToken() { return localStorage.getItem("gcbm_token"); }
-function setToken(t){ t ? localStorage.setItem("gcbm_token",t) : localStorage.removeItem("gcbm_token"); }
-
-const API = "/api";
+// ── API ───────────────────────────────────────────────────────────────────────
+const BASE = "/api";
 async function apiFetch(path, opts={}) {
   const token = getToken();
-  const res = await fetch(`${API}${path}`, {
+  const res = await fetch(`${BASE}${path}`, {
     ...opts,
-    headers: { "Content-Type":"application/json", ...(token?{Authorization:`Bearer ${token}`}:{}), ...(opts.headers||{}) },
+    headers:{ "Content-Type":"application/json", ...(token?{Authorization:`Bearer ${token}`}:{}), ...(opts.headers||{}) },
   });
-  if (res.status === 401) { setToken(null); window.location.reload(); return; }
-  if (!res.ok) { const t = await res.text(); throw new Error(t); }
+  if (res.status===401) { setToken(null); window.location.reload(); return; }
+  if (!res.ok) { const t=await res.text(); throw new Error(t); }
   return res.json();
 }
-
-// ── FIXED API INTERACTION PATHWAYS TO ELIMINATE 404 CONFLICTS ──
-const API2 = {
-  verify:          ()           => apiFetch("/auth?action=verify"),
-  login:           (e,p)        => apiFetch("/auth?action=login",           { method:"POST", body:JSON.stringify({email:e,password:p}) }),
-  register:        (e,p,n)      => apiFetch("/auth?action=register",        { method:"POST", body:JSON.stringify({email:e,password:p,name:n}) }),
-  googleUrl:       ()           => `${API}/auth?action=google`,
-  updateProfile:   (data)       => apiFetch("/auth?action=profile",         { method:"PATCH", body:JSON.stringify(data) }),
-  changePassword:  (cur,nw)     => apiFetch("/auth?action=change-password", { method:"POST",  body:JSON.stringify({currentPassword:cur,newPassword:nw}) }),
-
-  // All booking manager operations route through the /bookings handler pipeline explicitly
-  allUsers:        ()           => apiFetch("/auth?action=users"),
-  units:           ()           => apiFetch("/bookings?action=units"),
-  addUnit:         (n,l)        => apiFetch("/bookings?action=units",        { method:"POST", body:JSON.stringify({name:n,location:l}) }),
-  bookings:        (uid)        => apiFetch(`/bookings?action=bookings&unit_id=${encodeURIComponent(uid)}`),
-  stats:           (uid,month)  => apiFetch(`/bookings?action=stats&unit_id=${encodeURIComponent(uid)}&month=${month}`),
-  allStats:        (month)      => apiFetch(`/bookings?action=stats&month=${month}`),
-  sources:         ()           => apiFetch("/bookings?action=sources"),
-  syncICal:        (uid)        => apiFetch("/bookings?action=sync_channels", { method:"POST", body: JSON.stringify({ unit_id: uid }) }),
-  upsert:          (b)          => apiFetch("/bookings?action=bookings",     { method:"POST", body:JSON.stringify(b) }),
-  deleteBooking:   (id)         => apiFetch(`/bookings?action=bookings&id=${id}`, { method:"DELETE" }),
-  getPerms:        (uid)        => apiFetch(`/bookings?action=permissions&unit_id=${encodeURIComponent(uid)}`),
-  grantPerm:       (uid,userId) => apiFetch("/bookings?action=permissions",  { method:"POST", body:JSON.stringify({unit_id:uid,user_id:userId}) }),
-  revokePerm:      (uid,userId) => apiFetch(`/bookings?action=permissions&unit_id=${encodeURIComponent(uid)}&user_id=${userId}`, { method:"DELETE" }),
+const API = {
+  verify:        ()        => apiFetch("/auth?action=verify"),
+  login:         (e,p)     => apiFetch("/auth?action=login",    {method:"POST",body:JSON.stringify({email:e,password:p})}),
+  register:      (e,p,n)   => apiFetch("/auth?action=register", {method:"POST",body:JSON.stringify({email:e,password:p,name:n})}),
+  googleUrl:     ()        => `${BASE}/auth?action=google`,
+  updateProfile: (d)       => apiFetch("/auth?action=profile",         {method:"PATCH",body:JSON.stringify(d)}),
+  changePassword:(c,n)     => apiFetch("/auth?action=change-password",  {method:"POST", body:JSON.stringify({currentPassword:c,newPassword:n})}),
+  units:         ()        => apiFetch("/bookings?action=units"),
+  addUnit:       (n,l)     => apiFetch("/bookings?action=units",{method:"POST",body:JSON.stringify({name:n,location:l})}),
+  getBookings:   (uid)     => apiFetch(`/bookings?action=bookings&unit_id=${encodeURIComponent(uid)}`),
+  stats:         (uid,m)   => apiFetch(`/bookings?action=stats&unit_id=${encodeURIComponent(uid)}&month=${m}`),
+  allStats:      (m)       => apiFetch(`/bookings?action=stats&month=${m}`),
+  saveBooking:   (b)       => apiFetch("/bookings?action=bookings",{method:"POST",body:JSON.stringify(b)}),
+  patchBooking:  (id,d)    => apiFetch(`/bookings?action=bookings&id=${id}`,{method:"PATCH",body:JSON.stringify(d)}),
+  deleteBooking: (id)      => apiFetch(`/bookings?action=bookings&id=${id}`,{method:"DELETE"}),
+  allUsers:      ()        => apiFetch("/bookings?action=users"),
+  getPerms:      (uid)     => apiFetch(`/bookings?action=permissions&unit_id=${encodeURIComponent(uid)}`),
+  grantPerm:     (u,us)    => apiFetch("/bookings?action=permissions",{method:"POST",body:JSON.stringify({unit_id:u,user_id:us})}),
+  revokePerm:    (u,us)    => apiFetch(`/bookings?action=permissions&unit_id=${encodeURIComponent(u)}&user_id=${us}`,{method:"DELETE"}),
 };
 
-const inp = { background:"rgba(255,255,255,0.05)", border:"1px solid rgba(255,255,255,0.1)", borderRadius:"8px", color:"#F0EEF8", padding:"10px 14px", fontSize:"13px", fontFamily:"'DM Mono', monospace", width:"100%", outline:"none", boxSizing:"border-box" };
-const lbl = { color:"rgba(255,255,255,0.45)", fontSize:"10px", fontFamily:"'DM Mono', monospace", letterSpacing:"0.1em", textTransform:"uppercase", display:"block", marginBottom:"5px" };
+// ── Shared styles ─────────────────────────────────────────────────────────────
+const inp = { background:"rgba(255,255,255,0.05)", border:"1px solid rgba(255,255,255,0.1)", borderRadius:"8px", color:"#F0EEF8", padding:"9px 12px", fontSize:"12px", fontFamily:"'DM Mono', monospace", width:"100%", outline:"none", boxSizing:"border-box" };
+const lbl = { color:"rgba(255,255,255,0.4)", fontSize:"9px", fontFamily:"'DM Mono', monospace", letterSpacing:"0.1em", textTransform:"uppercase", display:"block", marginBottom:"4px" };
 const card = { background:"rgba(255,255,255,0.03)", border:"1px solid rgba(255,255,255,0.07)", borderRadius:"12px", padding:"16px" };
+const fi   = e => e.target.style.borderColor="rgba(110,86,207,0.7)";
+const fb   = e => e.target.style.borderColor="rgba(255,255,255,0.1)";
 
+// ── Modal wrapper ─────────────────────────────────────────────────────────────
 function Modal({ isOpen, onClose, children, wide }) {
-  useEffect(()=>{ const h=e=>{if(e.key==="Escape")onClose();}; window.addEventListener("keydown",h); return()=>window.removeEventListener("keydown",h); },[onClose]);
-  if(!isOpen) return null;
+  useEffect(()=>{
+    const h=e=>{if(e.key==="Escape")onClose();};
+    window.addEventListener("keydown",h); return()=>window.removeEventListener("keydown",h);
+  },[onClose]);
+  if (!isOpen) return null;
   return (
-      <div onClick={onClose} style={{ position:"fixed",inset:0,zIndex:1000,background:"rgba(10,10,18,0.8)",backdropFilter:"blur(6px)",display:"flex",alignItems:"center",justifyContent:"center",animation:"fadeIn 0.15s ease",padding:"16px" }}>
-        <div onClick={e=>e.stopPropagation()} style={{ background:"#12121E",border:"1px solid rgba(255,255,255,0.08)",borderRadius:"16px",padding:"28px",width:"100%",maxWidth:wide?"720px":"460px",boxShadow:"0 24px 60px rgba(0,0,0,0.6)",animation:"slideUp 0.2s cubic-bezier(.34,1.4,.64,1)",maxHeight:"90vh",overflowY:"auto" }}>
+      <div onClick={onClose} style={{position:"fixed",inset:0,zIndex:1000,background:"rgba(10,10,18,0.85)",backdropFilter:"blur(6px)",display:"flex",alignItems:"center",justifyContent:"center",animation:"fadeIn 0.15s",padding:"16px"}}>
+        <div onClick={e=>e.stopPropagation()} style={{background:"#12121E",border:"1px solid rgba(255,255,255,0.08)",borderRadius:"16px",padding:"24px",width:"100%",maxWidth:wide?"760px":"500px",boxShadow:"0 24px 60px rgba(0,0,0,0.7)",animation:"slideUp 0.2s cubic-bezier(.34,1.4,.64,1)",maxHeight:"92vh",overflowY:"auto"}}>
           {children}
         </div>
       </div>
   );
 }
 
-function ProfileModal({ user, onClose, onUpdate }) {
-  const [name, setName]         = useState(user.name||"");
-  const [bio, setBio]           = useState(user.bio||"");
-  const [phone, setPhone]       = useState(user.phone||"");
-  const [avatarUrl, setAvatarUrl] = useState(user.avatar||"");
-  const [saving, setSaving]     = useState(false);
-  const [msg, setMsg]           = useState({ text:"", type:"" });
+// ── Status pill ───────────────────────────────────────────────────────────────
+function Pill({ label, color, size=10 }) {
+  return <span style={{background:`${color}22`,color,border:`1px solid ${color}44`,borderRadius:"4px",padding:"2px 7px",fontSize:`${size}px`,fontFamily:"'DM Mono', monospace",fontWeight:600,whiteSpace:"nowrap"}}>{label}</span>;
+}
 
-  const showMsg = (text, type="success") => {
-    setMsg({ text, type });
-    setTimeout(() => setMsg({ text:"", type:"" }), 3000);
-  };
+// ── Section header ────────────────────────────────────────────────────────────
+function SectionHeader({ title, onClose }) {
+  return (
+      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:"18px"}}>
+        <div style={{color:"#F0EEF8",fontSize:"16px",fontFamily:"'Playfair Display', serif",fontWeight:700}}>{title}</div>
+        {onClose && <button onClick={onClose} style={{background:"rgba(255,255,255,0.06)",border:"none",borderRadius:"8px",color:"rgba(255,255,255,0.5)",cursor:"pointer",fontSize:"18px",width:"32px",height:"32px",display:"flex",alignItems:"center",justifyContent:"center"}}>×</button>}
+      </div>
+  );
+}
 
-  const saveProfile = async () => {
-    if (!name.trim()) return showMsg("Name cannot be empty", "error");
-    setSaving(true);
+// ── LOGIN PAGE ────────────────────────────────────────────────────────────────
+function LoginPage({ onLogin }) {
+  const [tab,setTab]=useState("login");
+  const [email,setEmail]=useState(""); const [name,setName]=useState("");
+  const [pw,setPw]=useState(""); const [pw2,setPw2]=useState("");
+  const [err,setErr]=useState(""); const [loading,setLoading]=useState(false);
+
+  useEffect(()=>{
+    const hash=window.location.hash;
+    if(hash.includes("token=")){
+      const t=hash.split("token=")[1]; setToken(t);
+      window.location.hash=""; window.location.reload();
+    }
+    if(new URLSearchParams(window.location.search).get("error")) setErr("Sign-in failed. Please try again.");
+  },[]);
+
+  const submit=async()=>{
+    setErr(""); setLoading(true);
     try {
-      const res = await API2.updateProfile({ name:name.trim(), bio:bio.trim(), phone:phone.trim(), avatar:avatarUrl });
-      setToken(res.token);
-      onUpdate(res.user);
-      showMsg("Profile updated successfully ✓");
-    } catch(e) { showMsg(e.message, "error"); }
-    setSaving(false);
+      if(tab==="login"){ const r=await API.login(email,pw); setToken(r.token); onLogin(r.user); }
+      else {
+        if(pw!==pw2){setErr("Passwords don't match");setLoading(false);return;}
+        if(pw.length<6){setErr("Password must be 6+ characters");setLoading(false);return;}
+        const r=await API.register(email,pw,name); setToken(r.token); onLogin(r.user);
+      }
+    } catch(e){ setErr(e.message.includes("{")?JSON.parse(e.message).error:e.message); }
+    setLoading(false);
   };
 
   return (
-      <>
-        <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:"20px" }}>
-          <div style={{ color:"#F0EEF8", fontSize:"16px", fontFamily:"'Playfair Display', serif", fontWeight:700 }}>My Profile</div>
-          <button onClick={onClose} style={{ background:"rgba(255,255,255,0.06)", border:"none", borderRadius:"8px", color:"rgba(255,255,255,0.5)", cursor:"pointer", fontSize:"18px", width:"32px", height:"32px" }}>×</button>
+      <div style={{minHeight:"100vh",background:"#0A0A12",display:"flex",alignItems:"center",justifyContent:"center",fontFamily:"'DM Mono', monospace",padding:"16px"}}>
+        <div style={{width:"100%",maxWidth:"400px"}}>
+          <div style={{textAlign:"center",marginBottom:"28px"}}>
+            <div style={{fontSize:"36px",marginBottom:"8px"}}>🏢</div>
+            <div style={{color:"#F0EEF8",fontSize:"22px",fontFamily:"'Playfair Display', serif",fontWeight:900}}>Gaur City</div>
+            <div style={{color:"rgba(255,255,255,0.3)",fontSize:"10px",letterSpacing:"0.2em",textTransform:"uppercase"}}>Booking Manager</div>
+          </div>
+          <div style={{background:"rgba(255,255,255,0.03)",border:"1px solid rgba(255,255,255,0.08)",borderRadius:"16px",padding:"28px"}}>
+            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:"4px",background:"rgba(255,255,255,0.04)",borderRadius:"10px",padding:"4px",marginBottom:"20px"}}>
+              {["login","register"].map(t=>(
+                  <button key={t} onClick={()=>{setTab(t);setErr("");}} style={{padding:"8px",borderRadius:"8px",border:"none",background:tab===t?"rgba(110,86,207,0.5)":"transparent",color:tab===t?"#F0EEF8":"rgba(255,255,255,0.35)",cursor:"pointer",fontFamily:"'DM Mono', monospace",fontSize:"11px",letterSpacing:"0.08em",textTransform:"uppercase"}}>
+                    {t==="login"?"Sign In":"Register"}
+                  </button>
+              ))}
+            </div>
+            <a href={API.googleUrl()} style={{display:"flex",alignItems:"center",justifyContent:"center",gap:"10px",padding:"11px",borderRadius:"10px",border:"1px solid rgba(255,255,255,0.12)",background:"rgba(255,255,255,0.04)",color:"#F0EEF8",textDecoration:"none",fontSize:"13px",fontFamily:"'DM Mono', monospace",marginBottom:"18px"}}
+               onMouseEnter={e=>e.currentTarget.style.background="rgba(255,255,255,0.08)"} onMouseLeave={e=>e.currentTarget.style.background="rgba(255,255,255,0.04)"}>
+              <svg width="18" height="18" viewBox="0 0 48 48"><path fill="#EA4335" d="M24 9.5c3.54 0 6.71 1.22 9.21 3.6l6.85-6.85C35.9 2.38 30.47 0 24 0 14.62 0 6.51 5.38 2.56 13.22l7.98 6.19C12.43 13.72 17.74 9.5 24 9.5z"/><path fill="#4285F4" d="M46.98 24.55c0-1.57-.15-3.09-.38-4.55H24v9.02h12.94c-.58 2.96-2.26 5.48-4.78 7.18l7.73 6c4.51-4.18 7.09-10.36 7.09-17.65z"/><path fill="#FBBC05" d="M10.53 28.59c-.48-1.45-.76-2.99-.76-4.59s.27-3.14.76-4.59l-7.98-6.19C.92 16.46 0 20.12 0 24c0 3.88.92 7.54 2.56 10.78l7.97-6.19z"/><path fill="#34A853" d="M24 48c6.48 0 11.93-2.13 15.89-5.81l-7.73-6c-2.18 1.48-4.97 2.35-8.16 2.35-6.26 0-11.57-4.22-13.47-9.91l-7.98 6.19C6.51 42.62 14.62 48 24 48z"/></svg>
+              Continue with Google
+            </a>
+            <div style={{display:"flex",alignItems:"center",gap:"12px",marginBottom:"18px"}}>
+              <div style={{flex:1,height:"1px",background:"rgba(255,255,255,0.08)"}}/>
+              <span style={{color:"rgba(255,255,255,0.2)",fontSize:"10px"}}>OR</span>
+              <div style={{flex:1,height:"1px",background:"rgba(255,255,255,0.08)"}}/>
+            </div>
+            <div style={{display:"grid",gap:"10px"}}>
+              {tab==="register"&&<div><label style={lbl}>Full Name</label><input style={inp} value={name} onChange={e=>setName(e.target.value)} placeholder="Your name" onFocus={fi} onBlur={fb}/></div>}
+              <div><label style={lbl}>Email</label><input style={inp} type="email" value={email} onChange={e=>setEmail(e.target.value)} placeholder="you@example.com" onFocus={fi} onBlur={fb} onKeyDown={e=>e.key==="Enter"&&submit()}/></div>
+              <div><label style={lbl}>Password</label><input style={inp} type="password" value={pw} onChange={e=>setPw(e.target.value)} placeholder="••••••••" onFocus={fi} onBlur={fb} onKeyDown={e=>e.key==="Enter"&&submit()}/></div>
+              {tab==="register"&&<div><label style={lbl}>Confirm Password</label><input style={inp} type="password" value={pw2} onChange={e=>setPw2(e.target.value)} placeholder="••••••••" onFocus={fi} onBlur={fb} onKeyDown={e=>e.key==="Enter"&&submit()}/></div>}
+            </div>
+            {err&&<div style={{color:"#FF7B7F",fontSize:"11px",marginTop:"12px",padding:"8px 12px",background:"rgba(255,90,95,0.1)",borderRadius:"6px",border:"1px solid rgba(255,90,95,0.2)"}}>⚠ {err}</div>}
+            <button onClick={submit} disabled={loading} style={{padding:"11px",borderRadius:"8px",border:"none",background:loading?"rgba(110,86,207,0.5)":"linear-gradient(135deg,#6E56CF,#9B7FE8)",color:"#fff",cursor:loading?"not-allowed":"pointer",fontWeight:700,fontFamily:"'DM Mono', monospace",fontSize:"12px",width:"100%",marginTop:"16px",opacity:loading?0.7:1}}>
+              {loading?"Please wait…":tab==="login"?"Sign In":"Create Account"}
+            </button>
+          </div>
+          <div style={{textAlign:"center",marginTop:"12px",color:"rgba(255,255,255,0.2)",fontSize:"10px",fontFamily:"'DM Mono', monospace"}}>New users can register freely and add their own apartments</div>
         </div>
-        <div style={{ display:"grid", gap:"14px" }}>
-          <div><label style={lbl}>Display Name</label><input style={inp} value={name} onChange={e=>setName(e.target.value)}/></div>
-          <div><label style={lbl}>Phone Number</label><input style={inp} value={phone} onChange={e=>setPhone(e.target.value)}/></div>
-          <div><label style={lbl}>Bio</label><textarea style={inp} value={bio} onChange={e=>setBio(e.target.value)}/></div>
-          <div><label style={lbl}>Avatar URL</label><input style={inp} value={avatarUrl} onChange={e=>setAvatarUrl(e.target.value)}/></div>
-          {msg.text && <div style={{ color: msg.type==="error"?"#FF7B7F":"#74C69D", fontSize:"12px" }}>{msg.text}</div>}
-          <button onClick={saveProfile} disabled={saving} style={{ padding:"11px", borderRadius:"8px", border:"none", background:"linear-gradient(135deg,#6E56CF,#9B7FE8)", color:"#fff", cursor:"pointer", fontWeight:700 }}>
-            {saving?"Saving…":"Save Profile"}
+      </div>
+  );
+}
+
+// ── PROFILE MODAL ─────────────────────────────────────────────────────────────
+function ProfileModal({ user, onClose, onUpdate }) {
+  const [tab,setTab]=useState("profile");
+  const [name,setName]=useState(user.name||""); const [bio,setBio]=useState(user.bio||"");
+  const [phone,setPhone]=useState(user.phone||""); const [avatarUrl,setAvatarUrl]=useState(user.avatar||"");
+  const [preview,setPreview]=useState(user.avatar||"");
+  const [curPw,setCurPw]=useState(""); const [newPw,setNewPw]=useState(""); const [confPw,setConfPw]=useState("");
+  const [saving,setSaving]=useState(false); const [msg,setMsg]=useState({text:"",type:""});
+
+  const showMsg=(text,type="ok")=>{ setMsg({text,type}); setTimeout(()=>setMsg({text:"",type:""}),3000); };
+
+  const handleFile=e=>{
+    const f=e.target.files[0]; if(!f) return;
+    if(f.size>2*1024*1024){showMsg("Image must be under 2MB","err");return;}
+    const r=new FileReader(); r.onload=ev=>{setPreview(ev.target.result);setAvatarUrl(ev.target.result);}; r.readAsDataURL(f);
+  };
+
+  const saveProfile=async()=>{
+    if(!name.trim()){showMsg("Name required","err");return;}
+    setSaving(true);
+    try{ const r=await API.updateProfile({name:name.trim(),bio,phone,avatar:avatarUrl}); setToken(r.token); onUpdate(r.user); showMsg("Profile saved ✓"); }
+    catch(e){ showMsg(e.message,"err"); }
+    setSaving(false);
+  };
+
+  const savePw=async()=>{
+    if(newPw.length<6){showMsg("Min 6 characters","err");return;}
+    if(newPw!==confPw){showMsg("Passwords don't match","err");return;}
+    setSaving(true);
+    try{ await API.changePassword(curPw,newPw); setCurPw(""); setNewPw(""); setConfPw(""); showMsg("Password changed ✓"); }
+    catch(e){ showMsg(e.message,"err"); }
+    setSaving(false);
+  };
+
+  const initials=(user.name||user.email||"?")[0].toUpperCase();
+  return (
+      <>
+        <SectionHeader title="My Profile" onClose={onClose}/>
+        <div style={{display:"flex",alignItems:"center",gap:"14px",padding:"14px",background:"rgba(255,255,255,0.03)",borderRadius:"10px",border:"1px solid rgba(255,255,255,0.07)",marginBottom:"18px"}}>
+          <div style={{position:"relative",flexShrink:0}}>
+            {preview?<img src={preview} alt="" style={{width:"56px",height:"56px",borderRadius:"50%",objectFit:"cover",border:"3px solid rgba(110,86,207,0.5)"}} onError={()=>setPreview("")}/>
+                :<div style={{width:"56px",height:"56px",borderRadius:"50%",background:"linear-gradient(135deg,#6E56CF,#9B7FE8)",display:"flex",alignItems:"center",justifyContent:"center",fontSize:"22px",fontWeight:700,color:"#fff"}}>{initials}</div>}
+            <label htmlFor="av-up" style={{position:"absolute",bottom:"-2px",right:"-2px",width:"20px",height:"20px",background:"linear-gradient(135deg,#6E56CF,#9B7FE8)",borderRadius:"50%",display:"flex",alignItems:"center",justifyContent:"center",cursor:"pointer",fontSize:"10px",border:"2px solid #0A0A12"}} title="Upload photo">📷<input id="av-up" type="file" accept="image/*" onChange={handleFile} style={{display:"none"}}/></label>
+          </div>
+          <div style={{flex:1,minWidth:0}}>
+            <div style={{color:"#F0EEF8",fontSize:"14px",fontFamily:"'Playfair Display', serif",fontWeight:700}}>{user.name||"—"}</div>
+            <div style={{color:"rgba(255,255,255,0.3)",fontSize:"10px",fontFamily:"'DM Mono', monospace",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{user.email}</div>
+            <div style={{display:"flex",gap:"5px",marginTop:"5px"}}>
+              <Pill label={user.role==="admin"?"ADMIN":"USER"} color={user.role==="admin"?"#C4B5FD":"rgba(255,255,255,0.4)"} size={9}/>
+              <Pill label={user.provider==="google"?"Google":"Email"} color="rgba(255,255,255,0.3)" size={9}/>
+            </div>
+          </div>
+        </div>
+        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:"4px",background:"rgba(255,255,255,0.04)",borderRadius:"10px",padding:"4px",marginBottom:"18px"}}>
+          {[["profile","✏ Profile"],["password","🔒 Password"]].map(([t,l])=>(
+              <button key={t} onClick={()=>setTab(t)} style={{padding:"7px",borderRadius:"8px",border:"none",background:tab===t?"rgba(110,86,207,0.5)":"transparent",color:tab===t?"#F0EEF8":"rgba(255,255,255,0.35)",cursor:"pointer",fontFamily:"'DM Mono', monospace",fontSize:"11px"}}>{l}</button>
+          ))}
+        </div>
+        {msg.text&&<div style={{color:msg.type==="err"?"#FF7B7F":"#74C69D",fontSize:"11px",marginBottom:"12px",padding:"8px 12px",background:msg.type==="err"?"rgba(255,90,95,0.1)":"rgba(39,201,63,0.08)",borderRadius:"6px",border:`1px solid ${msg.type==="err"?"rgba(255,90,95,0.2)":"rgba(39,201,63,0.2)"}`}}>{msg.type==="err"?"⚠":"✓"} {msg.text}</div>}
+        {tab==="profile"&&(
+            <div style={{display:"grid",gap:"12px"}}>
+              <div><label style={lbl}>Display Name</label><input style={inp} value={name} onChange={e=>setName(e.target.value)} onFocus={fi} onBlur={fb}/></div>
+              <div><label style={lbl}>Phone</label><input style={inp} value={phone} onChange={e=>setPhone(e.target.value)} placeholder="+91 98765 43210" onFocus={fi} onBlur={fb}/></div>
+              <div><label style={lbl}>Bio</label><textarea style={{...inp,resize:"vertical",minHeight:"60px"}} value={bio} onChange={e=>setBio(e.target.value)} onFocus={fi} onBlur={fb}/></div>
+              <div><label style={lbl}>Avatar URL</label><input style={inp} value={avatarUrl} onChange={e=>{setAvatarUrl(e.target.value);setPreview(e.target.value);}} placeholder="https://…" onFocus={fi} onBlur={fb}/></div>
+              <button onClick={saveProfile} disabled={saving} style={{padding:"10px",borderRadius:"8px",border:"none",background:"linear-gradient(135deg,#6E56CF,#9B7FE8)",color:"#fff",cursor:"pointer",fontWeight:700,fontFamily:"'DM Mono', monospace",fontSize:"12px",opacity:saving?0.6:1}}>{saving?"Saving…":"Save Profile"}</button>
+            </div>
+        )}
+        {tab==="password"&&(
+            user.provider==="google"
+                ?<div style={{textAlign:"center",padding:"24px 0",color:"rgba(255,255,255,0.3)",fontFamily:"'DM Mono', monospace",fontSize:"12px",lineHeight:1.8}}><div style={{fontSize:"28px",marginBottom:"10px"}}>🔗</div>Account uses Google sign-in.<br/>Password managed by Google.</div>
+                :<div style={{display:"grid",gap:"12px"}}>
+                  <div><label style={lbl}>Current Password</label><input style={inp} type="password" value={curPw} onChange={e=>setCurPw(e.target.value)} onFocus={fi} onBlur={fb}/></div>
+                  <div><label style={lbl}>New Password</label><input style={inp} type="password" value={newPw} onChange={e=>setNewPw(e.target.value)} onFocus={fi} onBlur={fb}/></div>
+                  <div><label style={lbl}>Confirm New Password</label><input style={inp} type="password" value={confPw} onChange={e=>setConfPw(e.target.value)} onFocus={fi} onBlur={fb} onKeyDown={e=>e.key==="Enter"&&savePw()}/></div>
+                  {newPw.length>0&&<div style={{display:"flex",gap:"5px",flexWrap:"wrap"}}>
+                    {[["6+ chars",newPw.length>=6],["Number",/\d/.test(newPw)],["Uppercase",/[A-Z]/.test(newPw)],["Matches",newPw===confPw&&confPw.length>0]].map(([l,ok])=>(
+                        <span key={l} style={{background:ok?"rgba(39,201,63,0.1)":"rgba(255,255,255,0.04)",color:ok?"#74C69D":"rgba(255,255,255,0.25)",borderRadius:"4px",padding:"2px 7px",fontSize:"9px",fontFamily:"'DM Mono', monospace"}}>{ok?"✓":"·"} {l}</span>
+                    ))}
+                  </div>}
+                  <button onClick={savePw} disabled={saving} style={{padding:"10px",borderRadius:"8px",border:"none",background:"linear-gradient(135deg,#6E56CF,#9B7FE8)",color:"#fff",cursor:"pointer",fontWeight:700,fontFamily:"'DM Mono', monospace",fontSize:"12px",opacity:saving?0.6:1}}>{saving?"Updating…":"Change Password"}</button>
+                </div>
+        )}
+      </>
+  );
+}
+
+// ── BOOKING FORM ──────────────────────────────────────────────────────────────
+function BookingForm({ unit, onSave, onClose, editBooking, defaultDate }) {
+  const today = new Date().toISOString().slice(0,10);
+  const [f,setF] = useState(editBooking ? {
+    checkin_date:        editBooking.checkin_date,
+    checkout_date:       editBooking.checkout_date,
+    guest_name:          editBooking.guest_name,
+    guest_phone:         editBooking.guest_phone||"",
+    guest_email:         editBooking.guest_email||"",
+    guest_id_type:       editBooking.guest_id_type||"",
+    guest_id_number:     editBooking.guest_id_number||"",
+    num_guests:          editBooking.num_guests||1,
+    source:              editBooking.source,
+    check_in_time:       editBooking.check_in_time||"14:00",
+    check_out_time:      editBooking.check_out_time||"11:00",
+    status:              editBooking.status||"confirmed",
+    amount_per_night:    editBooking.amount_per_night||"",
+    total_amount:        editBooking.total_amount||"",
+    paid_amount:         editBooking.paid_amount||"",
+    payment_method:      editBooking.payment_method||"",
+    payment_status:      editBooking.payment_status||"pending",
+    security_deposit:    editBooking.security_deposit||"",
+    deposit_returned:    editBooking.deposit_returned||false,
+    overflow_to:         editBooking.overflow_to||"",
+    notes:               editBooking.notes||"",
+    special_requests:    editBooking.special_requests||"",
+  } : {
+    checkin_date: defaultDate||today, checkout_date: addDays(defaultDate||today,1),
+    guest_name:"", guest_phone:"", guest_email:"", guest_id_type:"", guest_id_number:"",
+    num_guests:1, source:"direct", check_in_time:"14:00", check_out_time:"11:00",
+    status:"confirmed", amount_per_night:"", total_amount:"", paid_amount:"",
+    payment_method:"", payment_status:"pending", security_deposit:"",
+    deposit_returned:false, overflow_to:"", notes:"", special_requests:"",
+  });
+  const [err,setErr]=useState(""); const [saving,setSaving]=useState(false); const [tab,setTab]=useState("basic");
+
+  const set=(k,v)=>setF(p=>{
+    const n={...p,[k]:v};
+    // Auto-calc total when per-night or dates change
+    if(["amount_per_night","checkin_date","checkout_date"].includes(k)){
+      const nights=calcNights(n.checkin_date,n.checkout_date);
+      if(n.amount_per_night) n.total_amount=(parseFloat(n.amount_per_night)*nights).toFixed(0);
+    }
+    return n;
+  });
+
+  const nights=calcNights(f.checkin_date,f.checkout_date);
+  const commPct = SRC[f.source]?.commission||0;
+  const commAmt = commPct>0 ? ((parseFloat(f.total_amount)||0)*commPct/100).toFixed(0) : 0;
+  const netRev  = ((parseFloat(f.total_amount)||0) - parseFloat(commAmt||0)).toFixed(0);
+  const due     = ((parseFloat(f.total_amount)||0)-(parseFloat(f.paid_amount)||0)).toFixed(0);
+  const preview_half = ["ekant","urmit","direct"].includes(f.source) && parseFloat(f.total_amount||0)<=1500 && nights===1;
+
+  const handleSave=async()=>{
+    if(!f.guest_name.trim()){setErr("Guest name is required.");return;}
+    if(!f.checkin_date||!f.checkout_date){setErr("Check-in and check-out dates required.");return;}
+    if(new Date(f.checkout_date)<=new Date(f.checkin_date)){setErr("Check-out must be after check-in.");return;}
+    if(!f.total_amount||isNaN(parseFloat(f.total_amount))){setErr("Total amount is required.");return;}
+    setErr(""); setSaving(true);
+    try {
+      await onSave({ id:editBooking?.id||uid(), unit_id:unit.id, ...f,
+        num_guests:Number(f.num_guests)||1,
+        amount_per_night:parseFloat(f.amount_per_night)||parseFloat(f.total_amount)/nights||0,
+        total_amount:parseFloat(f.total_amount)||0,
+        paid_amount:parseFloat(f.paid_amount)||0,
+        security_deposit:parseFloat(f.security_deposit)||0,
+      });
+    } catch(e){ setErr(e.message); }
+    setSaving(false);
+  };
+
+  const tabBtn=(t,l)=>(
+      <button onClick={()=>setTab(t)} style={{padding:"6px 12px",borderRadius:"8px",border:"none",background:tab===t?"rgba(110,86,207,0.4)":"transparent",color:tab===t?"#C4B5FD":"rgba(255,255,255,0.35)",cursor:"pointer",fontFamily:"'DM Mono', monospace",fontSize:"10px",letterSpacing:"0.06em",whiteSpace:"nowrap"}}>{l}</button>
+  );
+
+  return (
+      <>
+        <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:"16px"}}>
+          <div>
+            <div style={{color:"rgba(110,86,207,0.8)",fontSize:"9px",fontFamily:"'DM Mono', monospace",letterSpacing:"0.15em",textTransform:"uppercase",marginBottom:"2px"}}>{unit.name}</div>
+            <div style={{color:"#F0EEF8",fontSize:"16px",fontFamily:"'Playfair Display', serif",fontWeight:700}}>{editBooking?"Edit Booking":"New Booking"}</div>
+            {nights>0&&<div style={{color:"rgba(255,255,255,0.3)",fontSize:"10px",fontFamily:"'DM Mono', monospace",marginTop:"2px"}}>{nights} night{nights>1?"s":""} · {preview_half?"½ Half day":"Full day"}</div>}
+          </div>
+          <button onClick={onClose} style={{background:"rgba(255,255,255,0.06)",border:"none",borderRadius:"8px",color:"rgba(255,255,255,0.5)",cursor:"pointer",fontSize:"18px",width:"32px",height:"32px",display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}>×</button>
+        </div>
+
+        {/* Tab nav */}
+        <div style={{display:"flex",gap:"4px",background:"rgba(255,255,255,0.03)",borderRadius:"8px",padding:"4px",marginBottom:"16px",overflowX:"auto"}}>
+          {tabBtn("basic","📅 Dates & Source")}
+          {tabBtn("guest","👤 Guest")}
+          {tabBtn("payment","💰 Payment")}
+          {tabBtn("notes","📝 Notes")}
+        </div>
+
+        {/* ── Tab: Basic ── */}
+        {tab==="basic"&&(
+            <div style={{display:"grid",gap:"12px"}}>
+              <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:"10px"}}>
+                <div><label style={lbl}>Check-In Date</label><input style={inp} type="date" value={f.checkin_date} onChange={e=>{set("checkin_date",e.target.value);if(e.target.value>=f.checkout_date)set("checkout_date",addDays(e.target.value,1));}} onFocus={fi} onBlur={fb}/></div>
+                <div><label style={lbl}>Check-Out Date</label><input style={inp} type="date" value={f.checkout_date} min={addDays(f.checkin_date,1)} onChange={e=>set("checkout_date",e.target.value)} onFocus={fi} onBlur={fb}/></div>
+              </div>
+              <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:"10px"}}>
+                <div><label style={lbl}>Check-In Time</label><input style={inp} type="time" value={f.check_in_time} onChange={e=>set("check_in_time",e.target.value)}/></div>
+                <div><label style={lbl}>Check-Out Time</label><input style={inp} type="time" value={f.check_out_time} onChange={e=>set("check_out_time",e.target.value)}/></div>
+              </div>
+              <div>
+                <label style={lbl}>Booking Source</label>
+                <div style={{display:"grid",gridTemplateColumns:"repeat(5,1fr)",gap:"5px"}}>
+                  {SOURCES.map(s=>(
+                      <button key={s.id} onClick={()=>set("source",s.id)} style={{padding:"7px 4px",borderRadius:"8px",border:`1px solid ${f.source===s.id?s.color:"rgba(255,255,255,0.08)"}`,background:f.source===s.id?`${s.color}22`:"rgba(255,255,255,0.02)",color:f.source===s.id?s.color:"rgba(255,255,255,0.35)",fontFamily:"'DM Mono', monospace",fontSize:"9px",cursor:"pointer",display:"flex",flexDirection:"column",alignItems:"center",gap:"3px",transition:"all 0.15s"}}>
+                        <span style={{fontSize:"14px"}}>{s.icon}</span><span style={{textAlign:"center",lineHeight:1.1}}>{s.label}</span>
+                        {s.commission>0&&<span style={{opacity:0.7,fontSize:"8px"}}>{s.commission}% fee</span>}
+                      </button>
+                  ))}
+                </div>
+              </div>
+              <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:"10px"}}>
+                <div>
+                  <label style={lbl}>Status</label>
+                  <select style={{...inp}} value={f.status} onChange={e=>set("status",e.target.value)}>
+                    {STATUSES.map(s=><option key={s.id} value={s.id} style={{background:"#1a1a2e"}}>{s.label}</option>)}
+                  </select>
+                </div>
+                <div>
+                  <label style={lbl}>Overflow to Ekant</label>
+                  <div style={{display:"flex",alignItems:"center",gap:"8px",height:"36px"}}>
+                    <input type="checkbox" id="ov" checked={f.overflow_to==="ekant"} onChange={e=>set("overflow_to",e.target.checked?"ekant":"")} style={{width:"16px",height:"16px",accentColor:"#A78BFA",cursor:"pointer"}}/>
+                    <label htmlFor="ov" style={{color:"rgba(255,255,255,0.5)",fontSize:"11px",fontFamily:"'DM Mono', monospace",cursor:"pointer"}}>Pass to Ekant</label>
+                  </div>
+                </div>
+              </div>
+            </div>
+        )}
+
+        {/* ── Tab: Guest ── */}
+        {tab==="guest"&&(
+            <div style={{display:"grid",gap:"12px"}}>
+              <div><label style={lbl}>Guest Name *</label><input style={inp} value={f.guest_name} onChange={e=>set("guest_name",e.target.value)} placeholder="Full name" onFocus={fi} onBlur={fb}/></div>
+              <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:"10px"}}>
+                <div><label style={lbl}>Phone</label><input style={inp} value={f.guest_phone} onChange={e=>set("guest_phone",e.target.value)} placeholder="+91 98765 43210" onFocus={fi} onBlur={fb}/></div>
+                <div><label style={lbl}>Email</label><input style={inp} type="email" value={f.guest_email} onChange={e=>set("guest_email",e.target.value)} placeholder="guest@email.com" onFocus={fi} onBlur={fb}/></div>
+              </div>
+              <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:"10px"}}>
+                <div>
+                  <label style={lbl}>ID Type</label>
+                  <select style={inp} value={f.guest_id_type} onChange={e=>set("guest_id_type",e.target.value)}>
+                    <option value="" style={{background:"#1a1a2e"}}>Select…</option>
+                    {ID_TYPES.map(t=><option key={t} value={t} style={{background:"#1a1a2e"}}>{t.charAt(0).toUpperCase()+t.slice(1).replace("_"," ")}</option>)}
+                  </select>
+                </div>
+                <div><label style={lbl}>ID Number</label><input style={inp} value={f.guest_id_number} onChange={e=>set("guest_id_number",e.target.value)} placeholder="XXXX XXXX XXXX" onFocus={fi} onBlur={fb}/></div>
+              </div>
+              <div><label style={lbl}>Number of Guests</label><input style={{...inp,width:"100px"}} type="number" min="1" max="20" value={f.num_guests} onChange={e=>set("num_guests",e.target.value)} onFocus={fi} onBlur={fb}/></div>
+            </div>
+        )}
+
+        {/* ── Tab: Payment ── */}
+        {tab==="payment"&&(
+            <div style={{display:"grid",gap:"12px"}}>
+              <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:"10px"}}>
+                <div><label style={lbl}>Per Night (₹)</label><input style={inp} type="number" min="0" value={f.amount_per_night} onChange={e=>set("amount_per_night",e.target.value)} placeholder="e.g. 1800" onFocus={fi} onBlur={fb}/></div>
+                <div><label style={lbl}>Total Amount (₹) *</label><input style={inp} type="number" min="0" value={f.total_amount} onChange={e=>set("total_amount",e.target.value)} placeholder="e.g. 5400" onFocus={fi} onBlur={fb}/></div>
+              </div>
+              <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:"10px"}}>
+                <div><label style={lbl}>Paid Amount (₹)</label><input style={inp} type="number" min="0" value={f.paid_amount} onChange={e=>set("paid_amount",e.target.value)} placeholder="0" onFocus={fi} onBlur={fb}/></div>
+                <div>
+                  <label style={lbl}>Payment Status</label>
+                  <select style={inp} value={f.payment_status} onChange={e=>set("payment_status",e.target.value)}>
+                    {PAY_STATUSES.map(s=><option key={s.id} value={s.id} style={{background:"#1a1a2e"}}>{s.label}</option>)}
+                  </select>
+                </div>
+              </div>
+              <div>
+                <label style={lbl}>Payment Method</label>
+                <div style={{display:"flex",gap:"6px",flexWrap:"wrap"}}>
+                  {PAY_METHODS.map(m=>(
+                      <button key={m} onClick={()=>set("payment_method",m)} style={{padding:"5px 10px",borderRadius:"6px",border:`1px solid ${f.payment_method===m?"rgba(110,86,207,0.7)":"rgba(255,255,255,0.08)"}`,background:f.payment_method===m?"rgba(110,86,207,0.2)":"transparent",color:f.payment_method===m?"#C4B5FD":"rgba(255,255,255,0.4)",fontFamily:"'DM Mono', monospace",fontSize:"10px",cursor:"pointer",transition:"all 0.15s"}}>
+                        {m.replace("_"," ").toUpperCase()}
+                      </button>
+                  ))}
+                </div>
+              </div>
+              <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:"10px"}}>
+                <div><label style={lbl}>Security Deposit (₹)</label><input style={inp} type="number" min="0" value={f.security_deposit} onChange={e=>set("security_deposit",e.target.value)} placeholder="0" onFocus={fi} onBlur={fb}/></div>
+                <div>
+                  <label style={lbl}>Deposit Returned</label>
+                  <div style={{display:"flex",alignItems:"center",gap:"8px",height:"36px"}}>
+                    <input type="checkbox" checked={f.deposit_returned} onChange={e=>set("deposit_returned",e.target.checked)} style={{width:"16px",height:"16px",accentColor:"#34D399",cursor:"pointer"}}/>
+                    <span style={{color:"rgba(255,255,255,0.5)",fontSize:"11px",fontFamily:"'DM Mono', monospace"}}>Yes, returned</span>
+                  </div>
+                </div>
+              </div>
+              {/* Summary */}
+              {parseFloat(f.total_amount)>0&&(
+                  <div style={{background:"rgba(110,86,207,0.08)",borderRadius:"10px",padding:"12px 14px",border:"1px solid rgba(110,86,207,0.2)"}}>
+                    <div style={{color:"rgba(255,255,255,0.3)",fontSize:"9px",fontFamily:"'DM Mono', monospace",letterSpacing:"0.1em",marginBottom:"8px"}}>PAYMENT SUMMARY</div>
+                    <div style={{display:"grid",gap:"4px"}}>
+                      {[
+                        ["Total",inrFmt(f.total_amount),"#F0EEF8"],
+                        ["Paid",inrFmt(f.paid_amount),"#34D399"],
+                        ["Due",inrFmt(due),parseFloat(due)>0?"#F59E0B":"#34D399"],
+                        ...(commPct>0?[[`${SRC[f.source]?.label} commission (${commPct}%)`,`-${inrFmt(commAmt)}`,"#FF7B7F"],["Net Revenue",inrFmt(netRev),"#C4B5FD"]]:[]),
+                      ].map(([k,v,c])=>(
+                          <div key={k} style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+                            <span style={{color:"rgba(255,255,255,0.4)",fontSize:"11px",fontFamily:"'DM Mono', monospace"}}>{k}</span>
+                            <span style={{color:c,fontSize:"12px",fontFamily:"'Playfair Display', serif",fontWeight:700}}>{v}</span>
+                          </div>
+                      ))}
+                    </div>
+                  </div>
+              )}
+            </div>
+        )}
+
+        {/* ── Tab: Notes ── */}
+        {tab==="notes"&&(
+            <div style={{display:"grid",gap:"12px"}}>
+              <div><label style={lbl}>Internal Notes</label><textarea style={{...inp,resize:"vertical",minHeight:"80px"}} value={f.notes} onChange={e=>set("notes",e.target.value)} placeholder="Notes for your reference…" onFocus={fi} onBlur={fb}/></div>
+              <div><label style={lbl}>Guest's Special Requests</label><textarea style={{...inp,resize:"vertical",minHeight:"80px"}} value={f.special_requests} onChange={e=>set("special_requests",e.target.value)} placeholder="Early check-in, extra towels…" onFocus={fi} onBlur={fb}/></div>
+            </div>
+        )}
+
+        {err&&<div style={{color:"#FF7B7F",fontSize:"11px",marginTop:"12px",padding:"8px 12px",background:"rgba(255,90,95,0.1)",borderRadius:"6px",border:"1px solid rgba(255,90,95,0.2)"}}>⚠ {err}</div>}
+
+        <div style={{display:"flex",gap:"10px",marginTop:"18px"}}>
+          <button onClick={onClose} style={{flex:1,padding:"10px",borderRadius:"8px",border:"1px solid rgba(255,255,255,0.1)",background:"transparent",color:"rgba(255,255,255,0.4)",cursor:"pointer",fontFamily:"'DM Mono', monospace",fontSize:"12px"}}>Cancel</button>
+          <button onClick={handleSave} disabled={saving} style={{flex:2,padding:"10px",borderRadius:"8px",border:"none",background:saving?"rgba(110,86,207,0.5)":"linear-gradient(135deg,#6E56CF,#9B7FE8)",color:"#fff",cursor:saving?"not-allowed":"pointer",fontWeight:700,fontFamily:"'DM Mono', monospace",fontSize:"12px",opacity:saving?0.7:1}}>
+            {saving?"Saving…":editBooking?"Update Booking":"Save Booking"}
           </button>
         </div>
       </>
   );
 }
 
-function AdminPanel({ units }) {
-  const [users, setUsers]       = useState([]);
-  const [selUnit, setSelUnit]   = useState(units[0]?.id||"");
-  const [perms, setPerms]       = useState([]);
-  const [loading, setLoading]   = useState(false);
+// ── BOOKING DETAIL ────────────────────────────────────────────────────────────
+function BookingDetail({ booking:b, unit, onClose, onEdit, onDelete, onStatusChange, onPaymentUpdate }) {
+  const [deleting,setDeleting]=useState(false); const [updatingStatus,setUpdatingStatus]=useState(false);
+  const src = SRC[b.source]||SRC.direct;
+  const st  = ST[b.status]||ST.confirmed;
+  const ps  = PS[b.payment_status]||PS.pending;
+  const nights = b.nights||calcNights(b.checkin_date,b.checkout_date);
+  const due = (Number(b.total_amount||0)-Number(b.paid_amount||0)).toFixed(0);
 
-  useEffect(()=>{ API2.allUsers().then(res => setUsers(res || [])).catch(()=>{}); },[]);
-  useEffect(()=>{ if(selUnit) API2.getPerms(selUnit).then(res => setPerms(res || [])).catch(()=>{}); },[selUnit]);
-
-  const grant = async(userId)=>{
-    setLoading(true); await API2.grantPerm(selUnit,userId);
-    API2.getPerms(selUnit).then(res => setPerms(res || [])); setLoading(false);
-  };
-  const revoke = async(userId)=>{
-    setLoading(true); await API2.revokePerm(selUnit,userId);
-    API2.getPerms(selUnit).then(res => setPerms(res || [])); setLoading(false);
+  const handleDelete=async()=>{ setDeleting(true); await onDelete(b.id); setDeleting(false); };
+  const setStatus=async(status)=>{
+    setUpdatingStatus(true);
+    await onStatusChange(b.id,status);
+    setUpdatingStatus(false);
   };
 
-  return (
-      <div style={{ padding:"20px 0" }}>
-        <div style={lbl}>Admin — Access Control Matrix</div>
-        <div style={{ display:"flex",gap:"8px",marginBottom:"20px",marginTop:"10px" }}>
-          {units.map(u=>(
-              <button key={u.id} onClick={()=>setSelUnit(u.id)} style={{ padding:"6px 16px",borderRadius:"20px",border:`1px solid ${selUnit===u.id?"#6E56CF":"rgba(255,255,255,0.1)"}`,background:selUnit===u.id?"rgba(110,86,207,0.2)":"transparent",color:"#fff",cursor:"pointer" }}>{u.name}</button>
-          ))}
-        </div>
-        <div style={card}>
-          <div style={{ display:"grid",gap:"10px" }}>
-            {users.filter(u=>u.role!=="admin").map(u=>{
-              const hasAccess = perms.some(p=>p.user_id===u.id);
-              return (
-                  <div key={u.id} style={{ display:"flex",justifyContent:"space-between",alignItems:"center",background:"rgba(255,255,255,0.02)",padding:"10px",borderRadius:"8px" }}>
-                    <div>
-                      <div style={{ color:"#fff",fontSize:"13px" }}>{u.name}</div>
-                      <div style={{ color:"rgba(255,255,255,0.3)",fontSize:"11px" }}>{u.email}</div>
-                    </div>
-                    <button onClick={()=>hasAccess?revoke(u.id):grant(u.id)} disabled={loading} style={{ padding:"6px 12px",borderRadius:"6px",border:"none",background:hasAccess?"rgba(255,90,95,0.2)":"rgba(110,86,207,0.2)",color:hasAccess?"#FF7B7F":"#C4B5FD",cursor:"pointer" }}>
-                      {hasAccess?"Revoke":"Grant Access"}
-                    </button>
-                  </div>
-              );
-            })}
-          </div>
-        </div>
-      </div>
-  );
-}
-
-function AddUnitModal({ onAdd, onClose }) {
-  const [name,setName]=useState("");
-  const [location,setLoc]=useState("");
-  const [saving,setSaving]=useState(false);
-  const handleAdd=async()=>{
-    if(!name.trim()) return;
-    setSaving(true); await onAdd(name.trim(),location.trim()); setSaving(false);
-  };
   return (
       <>
-        <div style={{ display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:"20px" }}>
-          <div style={{ color:"#F0EEF8",fontSize:"16px",fontFamily:"'Playfair Display', serif",fontWeight:700 }}>Add New Unit</div>
-          <button onClick={onClose} style={{ background:"transparent",border:"none",color:"#fff",fontSize:"18px" }}>×</button>
+        <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:"16px"}}>
+          <div>
+            <div style={{color:"rgba(110,86,207,0.7)",fontSize:"9px",fontFamily:"'DM Mono', monospace",letterSpacing:"0.15em",textTransform:"uppercase",marginBottom:"4px"}}>{unit?.name}</div>
+            <div style={{display:"flex",gap:"6px",flexWrap:"wrap",marginBottom:"6px"}}>
+              <Pill label={src.label} color={src.color}/>
+              <Pill label={st.label} color={st.color}/>
+              <Pill label={ps.label} color={ps.color}/>
+              {(b.nights||1)>1&&<Pill label={`${nights}N`} color="#94A3B8"/>}
+            </div>
+            <div style={{color:"#F0EEF8",fontSize:"18px",fontFamily:"'Playfair Display', serif",fontWeight:700}}>{b.guest_name}</div>
+            <div style={{color:"rgba(255,255,255,0.35)",fontSize:"11px",fontFamily:"'DM Mono', monospace",marginTop:"2px"}}>
+              {b.checkin_date}{b.checkout_date!==b.checkin_date?` → ${b.checkout_date}`:""}
+            </div>
+          </div>
+          <button onClick={onClose} style={{background:"rgba(255,255,255,0.06)",border:"none",borderRadius:"8px",color:"rgba(255,255,255,0.5)",cursor:"pointer",fontSize:"18px",width:"32px",height:"32px",display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}>×</button>
         </div>
-        <div style={{ display:"grid",gap:"14px" }}>
-          <div><label style={lbl}>Unit Name</label><input style={inp} value={name} onChange={e=>setName(e.target.value)} placeholder="e.g. Unit 1627"/></div>
-          <div><label style={lbl}>Location</label><input style={inp} value={location} onChange={e=>setLoc(e.target.value)} placeholder="e.g. Gaur City Centre"/></div>
+
+        {/* Status workflow */}
+        <div style={{marginBottom:"14px"}}>
+          <div style={{color:"rgba(255,255,255,0.3)",fontSize:"9px",fontFamily:"'DM Mono', monospace",letterSpacing:"0.1em",marginBottom:"6px"}}>STATUS</div>
+          <div style={{display:"flex",gap:"4px",flexWrap:"wrap"}}>
+            {STATUSES.map(s=>(
+                <button key={s.id} onClick={()=>setStatus(s.id)} disabled={updatingStatus||b.status===s.id} style={{padding:"4px 10px",borderRadius:"6px",border:`1px solid ${b.status===s.id?s.color:"rgba(255,255,255,0.08)"}`,background:b.status===s.id?`${s.color}22`:"transparent",color:b.status===s.id?s.color:"rgba(255,255,255,0.35)",fontFamily:"'DM Mono', monospace",fontSize:"9px",cursor:b.status===s.id?"default":"pointer",fontWeight:b.status===s.id?700:400,transition:"all 0.15s"}}>
+                  {s.label}
+                </button>
+            ))}
+          </div>
         </div>
-        <div style={{ display:"flex",gap:"10px",marginTop:"20px" }}>
-          <button onClick={handleAdd} disabled={saving||!name.trim()} style={{ flex:1,padding:"10px",borderRadius:"8px",border:"none",background:"linear-gradient(135deg,#6E56CF,#9B7FE8)",color:"#fff",fontWeight:700 }}>Add Property Unit</button>
+
+        {/* Dates & times */}
+        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:"8px",marginBottom:"12px"}}>
+          {[{l:"Check-In",v:`${b.checkin_date} ${b.check_in_time||"14:00"}`,i:"⬆"},{l:"Check-Out",v:`${b.checkout_date} ${b.check_out_time||"11:00"}`,i:"⬇"}].map(item=>(
+              <div key={item.l} style={{background:"rgba(255,255,255,0.04)",borderRadius:"8px",padding:"10px 12px",border:"1px solid rgba(255,255,255,0.07)"}}>
+                <div style={{color:"rgba(255,255,255,0.3)",fontSize:"9px",fontFamily:"'DM Mono', monospace",marginBottom:"3px"}}>{item.i} {item.l.toUpperCase()}</div>
+                <div style={{color:"#F0EEF8",fontSize:"11px",fontFamily:"'DM Mono', monospace",fontWeight:600}}>{item.v}</div>
+              </div>
+          ))}
+        </div>
+
+        {/* Guest details */}
+        {(b.guest_phone||b.guest_email||b.guest_id_type||b.num_guests>1)&&(
+            <div style={{...card,marginBottom:"12px"}}>
+              <div style={{color:"rgba(255,255,255,0.3)",fontSize:"9px",fontFamily:"'DM Mono', monospace",letterSpacing:"0.1em",marginBottom:"8px"}}>GUEST DETAILS</div>
+              <div style={{display:"grid",gap:"5px"}}>
+                {b.guest_phone&&<div style={{color:"rgba(255,255,255,0.6)",fontSize:"11px",fontFamily:"'DM Mono', monospace"}}>📞 {b.guest_phone}</div>}
+                {b.guest_email&&<div style={{color:"rgba(255,255,255,0.6)",fontSize:"11px",fontFamily:"'DM Mono', monospace"}}>✉ {b.guest_email}</div>}
+                {b.guest_id_type&&<div style={{color:"rgba(255,255,255,0.6)",fontSize:"11px",fontFamily:"'DM Mono', monospace"}}>🪪 {b.guest_id_type.toUpperCase()}: {b.guest_id_number||"—"}</div>}
+                {b.num_guests>1&&<div style={{color:"rgba(255,255,255,0.6)",fontSize:"11px",fontFamily:"'DM Mono', monospace"}}>👥 {b.num_guests} guests</div>}
+              </div>
+            </div>
+        )}
+
+        {/* Financials */}
+        <div style={{background:"linear-gradient(135deg,rgba(110,86,207,0.1),rgba(155,127,232,0.06))",borderRadius:"10px",padding:"12px 14px",border:"1px solid rgba(110,86,207,0.2)",marginBottom:"12px"}}>
+          <div style={{color:"rgba(255,255,255,0.3)",fontSize:"9px",fontFamily:"'DM Mono', monospace",letterSpacing:"0.1em",marginBottom:"8px"}}>FINANCIALS · {nights} NIGHT{nights>1?"S":""}</div>
+          <div style={{display:"grid",gap:"5px"}}>
+            {[
+              ["Total",inrFmt(b.total_amount),"#F0EEF8"],
+              ["Paid",inrFmt(b.paid_amount),"#34D399"],
+              ...(parseFloat(due)>0?[["Due",inrFmt(due),"#F59E0B"]]:[]),
+              ...(b.platform_commission_pct>0?[
+                [`${src.label} fee (${b.platform_commission_pct}%)`,`-${inrFmt(b.platform_commission_amt)}`,"#FF7B7F"],
+                ["Net Revenue",inrFmt(b.net_revenue||b.total_amount-b.platform_commission_amt),"#C4B5FD"],
+              ]:[]),
+              ...(b.security_deposit>0?[["Security Deposit",inrFmt(b.security_deposit),b.deposit_returned?"#34D399":"#F59E0B"]]:[]),
+            ].map(([k,v,c])=>(
+                <div key={k} style={{display:"flex",justifyContent:"space-between"}}>
+                  <span style={{color:"rgba(255,255,255,0.4)",fontSize:"11px",fontFamily:"'DM Mono', monospace"}}>{k}</span>
+                  <span style={{color:c,fontSize:"12px",fontFamily:"'Playfair Display', serif",fontWeight:700}}>{v}</span>
+                </div>
+            ))}
+          </div>
+          {b.payment_method&&<div style={{marginTop:"8px",color:"rgba(255,255,255,0.3)",fontSize:"10px",fontFamily:"'DM Mono', monospace"}}>via {b.payment_method.replace("_"," ").toUpperCase()}</div>}
+
+          {/* Quick payment update */}
+          <div style={{marginTop:"10px",paddingTop:"10px",borderTop:"1px solid rgba(255,255,255,0.06)"}}>
+            <div style={{color:"rgba(255,255,255,0.25)",fontSize:"9px",fontFamily:"'DM Mono', monospace",marginBottom:"5px"}}>QUICK UPDATE</div>
+            <div style={{display:"flex",gap:"4px",flexWrap:"wrap"}}>
+              {PAY_STATUSES.map(s=>(
+                  <button key={s.id} onClick={()=>onPaymentUpdate(b.id,s.id)} style={{padding:"3px 8px",borderRadius:"5px",border:`1px solid ${b.payment_status===s.id?s.color:"rgba(255,255,255,0.06)"}`,background:b.payment_status===s.id?`${s.color}22`:"transparent",color:b.payment_status===s.id?s.color:"rgba(255,255,255,0.3)",fontFamily:"'DM Mono', monospace",fontSize:"9px",cursor:"pointer"}}>
+                    {s.label}
+                  </button>
+              ))}
+            </div>
+          </div>
+        </div>
+
+        {(b.notes||b.special_requests||b.overflow_to)&&(
+            <div style={{...card,marginBottom:"12px"}}>
+              {b.overflow_to&&<div style={{color:"#A78BFA",fontSize:"11px",fontFamily:"'DM Mono', monospace",marginBottom:"5px"}}>↗ Passed to {b.overflow_to}</div>}
+              {b.special_requests&&<div style={{marginBottom:"5px"}}><div style={{color:"rgba(255,255,255,0.3)",fontSize:"9px",fontFamily:"'DM Mono', monospace",marginBottom:"2px"}}>GUEST REQUESTS</div><div style={{color:"rgba(255,255,255,0.6)",fontSize:"11px",fontFamily:"'DM Mono', monospace",lineHeight:1.6}}>{b.special_requests}</div></div>}
+              {b.notes&&<div><div style={{color:"rgba(255,255,255,0.3)",fontSize:"9px",fontFamily:"'DM Mono', monospace",marginBottom:"2px"}}>NOTES</div><div style={{color:"rgba(255,255,255,0.5)",fontSize:"11px",fontFamily:"'DM Mono', monospace",lineHeight:1.6}}>{b.notes}</div></div>}
+            </div>
+        )}
+
+        <div style={{display:"flex",gap:"8px"}}>
+          <button onClick={handleDelete} disabled={deleting} style={{flex:1,padding:"9px",borderRadius:"8px",border:"1px solid rgba(255,90,95,0.3)",background:"rgba(255,90,95,0.08)",color:"#FF7B7F",cursor:"pointer",fontFamily:"'DM Mono', monospace",fontSize:"11px"}}>{deleting?"…":"Delete"}</button>
+          <button onClick={()=>onEdit(b)} style={{flex:2,padding:"9px",borderRadius:"8px",border:"none",background:"linear-gradient(135deg,#6E56CF,#9B7FE8)",color:"#fff",cursor:"pointer",fontFamily:"'DM Mono', monospace",fontSize:"11px",fontWeight:700}}>Edit Booking</button>
         </div>
       </>
   );
 }
 
-function Dashboard({ units, sourceMap, allSources }) {
-  const today = new Date();
-  const [selUnit, setSelUnit] = useState("all");
-  const [year, setYear]   = useState(today.getFullYear());
-  const [month, setMonth] = useState(today.getMonth());
-  const [data, setData]   = useState([]);
-  const [loading, setLoading] = useState(false);
+// ── BOOKING BADGE on calendar ─────────────────────────────────────────────────
+function BookingBadge({ booking:b, onClick }) {
+  const src=SRC[b.source]||SRC.direct;
+  const st=ST[b.status]||ST.confirmed;
+  const ps=PS[b.payment_status]||PS.pending;
+  const half=isHalfDay(b); const multi=(b.nights||1)>1;
+  return (
+      <div onClick={e=>{e.stopPropagation();onClick(b);}} style={{background:`linear-gradient(135deg,${src.color}cc,${src.color}77)`,color:"#fff",borderRadius:"4px",padding:"2px 4px",fontSize:"10px",fontFamily:"'DM Mono', monospace",fontWeight:600,cursor:"pointer",marginBottom:"2px",display:"flex",alignItems:"center",gap:"3px",overflow:"hidden",whiteSpace:"nowrap",transition:"transform 0.1s",opacity:b.status==="cancelled"?0.4:1}}
+           onMouseEnter={e=>e.currentTarget.style.transform="scale(1.03)"} onMouseLeave={e=>e.currentTarget.style.transform="scale(1)"}>
+        <span style={{fontSize:"8px",flexShrink:0}}>{src.icon}</span>
+        <span style={{overflow:"hidden",textOverflow:"ellipsis",flex:1}}>{b.guest_name||src.label}</span>
+        {half&&<span style={{fontSize:"7px",flexShrink:0,opacity:0.9}}>½</span>}
+        {multi&&<span style={{fontSize:"7px",flexShrink:0,opacity:0.9}}>{b.nights}N</span>}
+        {ps.id==="pending"&&<span style={{fontSize:"7px",flexShrink:0}}>⚠</span>}
+        {b.overflow_to&&<span style={{fontSize:"7px",flexShrink:0}}>↗</span>}
+      </div>
+  );
+}
 
-  const monthStr = `${year}-${String(month+1).padStart(2,"0")}`;
-  const daysInMonth = new Date(year, month+1, 0).getDate();
+// ── DASHBOARD ─────────────────────────────────────────────────────────────────
+function Dashboard({ units, user }) {
+  const today=new Date();
+  const [sel,setSel]=useState("all"); const [year,setYear]=useState(today.getFullYear()); const [month,setMonth]=useState(today.getMonth());
+  const [data,setData]=useState([]); const [loading,setLoading]=useState(false);
+  const mStr=`${year}-${String(month+1).padStart(2,"0")}`;
+  const dim=new Date(year,month+1,0).getDate();
 
   useEffect(()=>{
     setLoading(true);
-    const p = selUnit === "all" ? API2.allStats(monthStr) : API2.stats(selUnit, monthStr);
-    p.then(rows=>{ setData(rows||[]); setLoading(false); }).catch(()=>setLoading(false));
-  },[selUnit, monthStr]);
+    const p=sel==="all"?API.allStats(mStr):API.stats(sel,mStr);
+    p.then(r=>{setData(r||[]);setLoading(false);}).catch(()=>setLoading(false));
+  },[sel,mStr]);
 
-  const stats = useMemo(()=>{
-    const bySource = {};
-    allSources.forEach(s=>{ bySource[s.id]={ count:0, revenue:0 }; });
-    let totalRevenue=0, totalDays=0;
-
-    const byDate = {};
-    data.forEach(b=>{
-      if (b.status === "cancelled") return;
-      const stayDates = getDatesInRange(b.start_date || b.date, b.end_date || b.date);
-      stayDates.forEach(dateStr => {
-        if(dateStr.startsWith(monthStr)) {
-          if(!byDate[dateStr]) byDate[dateStr]=[];
-          byDate[dateStr].push(b);
-        }
-      });
-      bySource[b.source] = bySource[b.source]||{ count:0,revenue:0 };
-      bySource[b.source].count++;
-      bySource[b.source].revenue += Number(b.amount||0);
-      totalRevenue += Number(b.amount||0);
+  const stats=useMemo(()=>{
+    const bySrc={}, byStatus={};
+    SOURCES.forEach(s=>{bySrc[s.id]={count:0,revenue:0,nights:0};});
+    STATUSES.forEach(s=>{byStatus[s.id]=0;});
+    let totalRev=0, netRev=0, totalNights=0, totalDue=0;
+    const byDate={};
+    data.filter(b=>b.status!=="cancelled").forEach(b=>{
+      bySrc[b.source]=bySrc[b.source]||{count:0,revenue:0,nights:0};
+      bySrc[b.source].count++; bySrc[b.source].revenue+=Number(b.total_amount||0); bySrc[b.source].nights+=Number(b.nights||1);
+      byStatus[b.status]=(byStatus[b.status]||0)+1;
+      totalRev+=Number(b.total_amount||0); netRev+=Number(b.net_revenue||b.total_amount||0);
+      totalNights+=Number(b.nights||1); totalDue+=Math.max(0,Number(b.total_amount||0)-Number(b.paid_amount||0));
+      // For occupancy — mark all dates in range
+      const ci=new Date(b.checkin_date), co=new Date(b.checkout_date);
+      for(let d=new Date(ci); d<co; d.setDate(d.getDate()+1)){
+        const k=d.toISOString().slice(0,10);
+        if(k.startsWith(mStr)){if(!byDate[k])byDate[k]=[];byDate[k].push(b);}
+      }
     });
+    const occupiedDays=Object.values(byDate).reduce((s,bks)=>s+getDayOccupancy(bks),0);
+    const occupancyPct=dim>0?Math.round((occupiedDays/dim)*100):0;
+    const cancelled=data.filter(b=>b.status==="cancelled").length;
+    return {bySrc,byStatus,totalRev,netRev,totalNights,totalDue,occupiedDays,occupancyPct,cancelled,total:data.filter(b=>b.status!=="cancelled").length};
+  },[data,dim,mStr]);
 
-    Object.values(byDate).forEach(dayBks=>{ totalDays += getDayOccupancy(dayBks); });
-    const occupancyPct = daysInMonth > 0 ? Math.round((totalDays/daysInMonth)*100) : 0;
-    return { bySource, totalRevenue, totalDays, occupancyPct, totalBookings:data.filter(x=>x.status!=="cancelled").length };
-  },[data, daysInMonth, monthStr, allSources]);
+  // Daily revenue for chart
+  const daily=useMemo(()=>{
+    const map={};
+    for(let d=1;d<=dim;d++){const k=fmtDate(year,month,d);map[k]=0;}
+    data.filter(b=>b.status!=="cancelled").forEach(b=>{
+      const ci=new Date(b.checkin_date), co=new Date(b.checkout_date);
+      const nights=calcNights(b.checkin_date,b.checkout_date);
+      const perN=nights>0?Number(b.total_amount||0)/nights:Number(b.total_amount||0);
+      for(let d=new Date(ci);d<co;d.setDate(d.getDate()+1)){
+        const k=d.toISOString().slice(0,10);
+        if(map[k]!==undefined) map[k]+=perN;
+      }
+    });
+    return Object.entries(map).map(([date,rev])=>({date,rev:Math.round(rev)}));
+  },[data,year,month,dim]);
+  const maxRev=Math.max(...daily.map(d=>d.rev),1);
 
-  const btnStyle = (active) => ({ padding:"5px 14px",borderRadius:"20px",border:`1px solid ${active?"rgba(110,86,207,0.7)":"rgba(255,255,255,0.1)"}`,background:active?"rgba(110,86,207,0.2)":"transparent",color:active?"#C4B5FD":"rgba(255,255,255,0.4)",fontFamily:"'DM Mono', monospace",fontSize:"11px",cursor:"pointer" });
+  const BBtn=(t,l)=>(
+      <button onClick={()=>setSel(t)} style={{padding:"5px 12px",borderRadius:"20px",border:`1px solid ${sel===t?"rgba(110,86,207,0.7)":"rgba(255,255,255,0.1)"}`,background:sel===t?"rgba(110,86,207,0.2)":"transparent",color:sel===t?"#C4B5FD":"rgba(255,255,255,0.4)",fontFamily:"'DM Mono', monospace",fontSize:"10px",cursor:"pointer",whiteSpace:"nowrap"}}>{l}</button>
+  );
 
   return (
-      <div style={{ padding:"20px 0" }}>
-        <div style={{ display:"flex",gap:"10px",flexWrap:"wrap",alignItems:"center",marginBottom:"20px" }}>
-          <div style={{ display:"flex",gap:"6px",flexWrap:"wrap" }}>
-            <button style={btnStyle(selUnit==="all")} onClick={()=>setSelUnit("all")}>All Units</button>
-            {units.map(u=><button key={u.id} style={btnStyle(selUnit===u.id)} onClick={()=>setSelUnit(u.id)}>{u.name}</button>)}
+      <div style={{padding:"16px 0"}}>
+        <div style={{display:"flex",gap:"8px",flexWrap:"wrap",alignItems:"center",marginBottom:"18px"}}>
+          <div style={{display:"flex",gap:"6px",flexWrap:"wrap"}}>
+            {BBtn("all","All Units")}
+            {units.map(u=>BBtn(u.id,u.name))}
+          </div>
+          <div style={{display:"flex",alignItems:"center",gap:"6px",marginLeft:"auto"}}>
+            <button onClick={()=>{if(month===0){setMonth(11);setYear(y=>y-1);}else setMonth(m=>m-1);}} style={{background:"rgba(255,255,255,0.06)",border:"none",borderRadius:"6px",color:"rgba(255,255,255,0.5)",cursor:"pointer",width:"26px",height:"26px",fontSize:"14px"}}>‹</button>
+            <span style={{color:"#F0EEF8",fontFamily:"'DM Mono', monospace",fontSize:"12px",minWidth:"130px",textAlign:"center"}}>{MONTHS[month]} {year}</span>
+            <button onClick={()=>{if(month===11){setMonth(0);setYear(y=>y+1);}else setMonth(m=>m+1);}} style={{background:"rgba(255,255,255,0.06)",border:"none",borderRadius:"6px",color:"rgba(255,255,255,0.5)",cursor:"pointer",width:"26px",height:"26px",fontSize:"14px"}}>›</button>
           </div>
         </div>
 
-        {loading ? <div style={{ color:"rgba(255,255,255,0.3)",fontFamily:"'DM Mono', monospace",textAlign:"center",padding:"40px" }}>Loading…</div> : <>
-          <div style={{ display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:"10px",marginBottom:"20px" }}>
+        {loading?<div style={{color:"rgba(255,255,255,0.3)",fontFamily:"'DM Mono', monospace",fontSize:"12px",textAlign:"center",padding:"40px"}}>Loading…</div>:<>
+
+          {/* KPIs */}
+          <div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:"8px",marginBottom:"16px"}}>
             {[
-              { label:"Total Revenue",   value:`₹${stats.totalRevenue.toLocaleString("en-IN")}`, accent:"#86EFAC" },
-              { label:"Total Bookings",  value:stats.totalBookings,  accent:"#C4B5FD" },
-              { label:"Occupied Nights",   value:`${stats.totalDays.toFixed(1)} / ${daysInMonth}`, accent:"#FCA5A5" },
-              { label:"Occupancy Rate",  value:`${stats.occupancyPct}%`, accent:"#6EE7B7" },
+              {l:"Total Revenue",   v:inrFmt(stats.totalRev),       a:"#86EFAC"},
+              {l:"Net Revenue",     v:inrFmt(stats.netRev),         a:"#C4B5FD"},
+              {l:"Occupancy",       v:`${stats.occupancyPct}%`,     a:"#6EE7B7"},
+              {l:"Amount Due",      v:inrFmt(stats.totalDue),       a:stats.totalDue>0?"#F59E0B":"#34D399"},
             ].map(s=>(
-                <div key={s.label} style={card}>
-                  <div style={{ color:"rgba(255,255,255,0.3)",fontSize:"8px",letterSpacing:"0.12em",textTransform:"uppercase",marginBottom:"4px" }}>{s.label}</div>
-                  <div style={{ color:s.accent,fontSize:"18px",fontFamily:"'Playfair Display', serif",fontWeight:700 }}>{s.value}</div>
+                <div key={s.l} style={card}>
+                  <div style={{color:"rgba(255,255,255,0.3)",fontSize:"8px",letterSpacing:"0.1em",textTransform:"uppercase",marginBottom:"3px"}}>{s.l}</div>
+                  <div style={{color:s.a,fontSize:"16px",fontFamily:"'Playfair Display', serif",fontWeight:700}}>{s.v}</div>
                 </div>
             ))}
+          </div>
+          <div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:"8px",marginBottom:"16px"}}>
+            {[
+              {l:"Bookings",    v:stats.total,                 a:"#C4B5FD"},
+              {l:"Total Nights",v:stats.totalNights,           a:"#60A5FA"},
+              {l:"Cancelled",   v:stats.cancelled,             a:"#FF7B7F"},
+              {l:"Pending Pay", v:stats.byStatus.pending||0+stats.byStatus.partial||0, a:"#F59E0B"},
+            ].map(s=>(
+                <div key={s.l} style={card}>
+                  <div style={{color:"rgba(255,255,255,0.3)",fontSize:"8px",letterSpacing:"0.1em",textTransform:"uppercase",marginBottom:"3px"}}>{s.l}</div>
+                  <div style={{color:s.a,fontSize:"16px",fontFamily:"'Playfair Display', serif",fontWeight:700}}>{s.v}</div>
+                </div>
+            ))}
+          </div>
+
+          {/* Source breakdown */}
+          <div style={{...card,marginBottom:"16px"}}>
+            <div style={{color:"rgba(255,255,255,0.4)",fontSize:"9px",letterSpacing:"0.1em",textTransform:"uppercase",marginBottom:"12px",fontFamily:"'DM Mono', monospace"}}>Bookings by Source</div>
+            <div style={{display:"grid",gridTemplateColumns:"repeat(5,1fr)",gap:"6px"}}>
+              {SOURCES.map(src=>{
+                const s=stats.bySrc[src.id]||{count:0,revenue:0,nights:0};
+                const pct=stats.total>0?Math.round(s.count/stats.total*100):0;
+                return (
+                    <div key={src.id} style={{background:`${src.color}0d`,border:`1px solid ${src.color}33`,borderRadius:"10px",padding:"10px",textAlign:"center"}}>
+                      <div style={{fontSize:"16px",marginBottom:"3px"}}>{src.icon}</div>
+                      <div style={{color:src.color,fontSize:"10px",fontFamily:"'DM Mono', monospace",fontWeight:600,marginBottom:"5px"}}>{src.label}</div>
+                      <div style={{color:"#F0EEF8",fontSize:"18px",fontFamily:"'Playfair Display', serif",fontWeight:700}}>{s.count}</div>
+                      <div style={{color:"rgba(255,255,255,0.3)",fontSize:"9px",fontFamily:"'DM Mono', monospace"}}>{inrFmt(s.revenue)}</div>
+                      {src.commission>0&&<div style={{color:"#FF7B7F",fontSize:"8px",fontFamily:"'DM Mono', monospace",marginTop:"2px"}}>-{inrFmt(s.revenue*src.commission/100)} fee</div>}
+                      <div style={{marginTop:"6px",height:"3px",background:"rgba(255,255,255,0.06)",borderRadius:"2px"}}><div style={{width:`${pct}%`,height:"100%",background:src.color,borderRadius:"2px"}}/></div>
+                    </div>
+                );
+              })}
+            </div>
+          </div>
+
+          {/* Payment status */}
+          <div style={{...card,marginBottom:"16px"}}>
+            <div style={{color:"rgba(255,255,255,0.4)",fontSize:"9px",letterSpacing:"0.1em",textTransform:"uppercase",marginBottom:"12px",fontFamily:"'DM Mono', monospace"}}>Payment Status</div>
+            <div style={{display:"flex",gap:"8px",flexWrap:"wrap"}}>
+              {PAY_STATUSES.map(ps=>{
+                const count=data.filter(b=>b.payment_status===ps.id&&b.status!=="cancelled").length;
+                const rev=data.filter(b=>b.payment_status===ps.id&&b.status!=="cancelled").reduce((s,b)=>s+Number(b.total_amount||0),0);
+                return <div key={ps.id} style={{background:`${ps.color}11`,border:`1px solid ${ps.color}33`,borderRadius:"8px",padding:"8px 12px",flex:1,minWidth:"100px"}}>
+                  <div style={{color:ps.color,fontSize:"10px",fontFamily:"'DM Mono', monospace",fontWeight:600}}>{ps.label}</div>
+                  <div style={{color:"#F0EEF8",fontSize:"18px",fontFamily:"'Playfair Display', serif",fontWeight:700}}>{count}</div>
+                  <div style={{color:"rgba(255,255,255,0.3)",fontSize:"9px",fontFamily:"'DM Mono', monospace"}}>{inrFmt(rev)}</div>
+                </div>;
+              })}
+            </div>
+          </div>
+
+          {/* Daily revenue chart */}
+          <div style={{...card,marginBottom:"16px"}}>
+            <div style={{color:"rgba(255,255,255,0.4)",fontSize:"9px",letterSpacing:"0.1em",textTransform:"uppercase",marginBottom:"12px",fontFamily:"'DM Mono', monospace"}}>Daily Revenue — {MONTHS[month]} {year}</div>
+            <div style={{display:"flex",alignItems:"flex-end",gap:"2px",height:"100px"}}>
+              {daily.map(({date,rev})=>{
+                const h=maxRev>0?Math.max(rev/maxRev*100,rev>0?4:0):0;
+                const d=parseInt(date.split("-")[2]);
+                return <div key={date} style={{flex:1,display:"flex",flexDirection:"column",alignItems:"center",gap:"3px"}} title={`${date}: ${inrFmt(rev)}`}>
+                  <div style={{width:"100%",background:rev>0?"linear-gradient(180deg,#9B7FE8,#6E56CF)":"rgba(255,255,255,0.04)",height:`${h}%`,borderRadius:"2px 2px 0 0",minHeight:rev>0?"3px":"0",transition:"height 0.4s"}}/>
+                  <div style={{color:"rgba(255,255,255,0.15)",fontSize:"7px",fontFamily:"'DM Mono', monospace"}}>{d}</div>
+                </div>;
+              })}
+            </div>
+          </div>
+
+          {/* Bookings table */}
+          <div style={card}>
+            <div style={{color:"rgba(255,255,255,0.4)",fontSize:"9px",letterSpacing:"0.1em",textTransform:"uppercase",marginBottom:"12px",fontFamily:"'DM Mono', monospace"}}>All Bookings — {MONTHS[month]} {year} ({data.length})</div>
+            {data.length===0
+                ?<div style={{color:"rgba(255,255,255,0.2)",fontFamily:"'DM Mono', monospace",fontSize:"12px",textAlign:"center",padding:"20px"}}>No bookings this month</div>
+                :<div style={{overflowX:"auto"}}>
+                  <table style={{width:"100%",borderCollapse:"collapse",fontFamily:"'DM Mono', monospace",fontSize:"10px"}}>
+                    <thead><tr>{["Date","Unit","Guest","Nights","Source","Status","Payment","Total","Net"].map(h=>(
+                        <th key={h} style={{textAlign:"left",color:"rgba(255,255,255,0.3)",padding:"5px 8px",borderBottom:"1px solid rgba(255,255,255,0.06)",whiteSpace:"nowrap",letterSpacing:"0.06em"}}>{h}</th>
+                    ))}</tr></thead>
+                    <tbody>
+                    {[...data].sort((a,b)=>a.checkin_date.localeCompare(b.checkin_date)).map(b=>{
+                      const src=SRC[b.source]||SRC.direct; const st=ST[b.status]||ST.confirmed; const ps=PS[b.payment_status]||PS.pending;
+                      return <tr key={b.id} style={{borderBottom:"1px solid rgba(255,255,255,0.03)",opacity:b.status==="cancelled"?0.5:1}}
+                                 onMouseEnter={e=>e.currentTarget.style.background="rgba(255,255,255,0.02)"} onMouseLeave={e=>e.currentTarget.style.background="transparent"}>
+                        <td style={{padding:"6px 8px",color:"rgba(255,255,255,0.5)",whiteSpace:"nowrap"}}>{b.checkin_date}</td>
+                        <td style={{padding:"6px 8px",color:"rgba(255,255,255,0.4)",whiteSpace:"nowrap"}}>{units.find(u=>u.id===b.unit_id)?.name||b.unit_id}</td>
+                        <td style={{padding:"6px 8px",color:"#F0EEF8",whiteSpace:"nowrap"}}>{b.guest_name}</td>
+                        <td style={{padding:"6px 8px",color:"rgba(255,255,255,0.4)",textAlign:"center"}}>{b.nights||1}</td>
+                        <td style={{padding:"6px 8px"}}><span style={{background:`${src.color}22`,color:src.color,borderRadius:"4px",padding:"1px 5px",fontSize:"9px",fontWeight:600}}>{src.icon} {src.label}</span></td>
+                        <td style={{padding:"6px 8px"}}><span style={{background:`${st.color}22`,color:st.color,borderRadius:"4px",padding:"1px 5px",fontSize:"9px"}}>{st.label}</span></td>
+                        <td style={{padding:"6px 8px"}}><span style={{background:`${ps.color}22`,color:ps.color,borderRadius:"4px",padding:"1px 5px",fontSize:"9px"}}>{ps.label}</span></td>
+                        <td style={{padding:"6px 8px",color:"#C4B5FD",fontWeight:600,whiteSpace:"nowrap"}}>{inrFmt(b.total_amount)}</td>
+                        <td style={{padding:"6px 8px",color:"#86EFAC",whiteSpace:"nowrap"}}>{inrFmt(b.net_revenue||b.total_amount)}</td>
+                      </tr>;
+                    })}
+                    </tbody>
+                  </table>
+                </div>
+            }
           </div>
         </>}
       </div>
   );
 }
 
-function BookingBadge({ booking, onClick, sourceMap }) {
-  const src = sourceMap[booking.source] || { icon:"❓", color:"#666", label:"Direct" };
-  const half = isHalfDay(booking);
-  const isCancelled = booking.status === "cancelled";
+// ── ADMIN PANEL ───────────────────────────────────────────────────────────────
+// ── ICAL SYNC PANEL ───────────────────────────────────────────────────────────
+function IcalSyncPanel({ units, selUnit }) {
+  const [unit, setUnit]         = useState(selUnit?.id || units[0]?.id || "");
+  const [importUrl, setImportUrl] = useState("");
+  const [platform, setPlatform]   = useState("airbnb");
+  const [links, setLinks]         = useState(null);
+  const [loading, setLoading]     = useState(false);
+  const [msg, setMsg]             = useState({ text:"", type:"" });
+  const [syncing, setSyncing]     = useState(false);
+  const [syncResults, setSyncResults] = useState([]);
+
+  const showMsg = (text, type="ok") => { setMsg({ text, type }); setTimeout(() => setMsg({ text:"", type:"" }), 4000); };
+
+  // Load export links when unit changes
+  useEffect(() => {
+    if (!unit) return;
+    fetch(`/api/ical?action=links&unit_id=${encodeURIComponent(unit)}`)
+        .then(r => r.json()).then(setLinks).catch(() => {});
+  }, [unit]);
+
+  const copyUrl = (url) => {
+    navigator.clipboard.writeText(url).then(() => showMsg("URL copied to clipboard ✓")).catch(() => showMsg("Copy failed — select and copy manually", "err"));
+  };
+
+  const handleImport = async () => {
+    if (!importUrl.trim()) return showMsg("Paste a calendar URL first", "err");
+    setSyncing(true);
+    try {
+      const res = await fetch(`/api/ical?action=import&unit_id=${encodeURIComponent(unit)}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${getToken()}` },
+        body: JSON.stringify({ url: importUrl.trim() }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Import failed");
+      setSyncResults(prev => [{
+        platform, unit: units.find(u => u.id === unit)?.name || unit,
+        imported: data.imported, skipped: data.skipped, total: data.total,
+        time: new Date().toLocaleTimeString(),
+      }, ...prev.slice(0, 9)]);
+      showMsg(`✓ Imported ${data.imported} blocked dates (${data.skipped} already existed)`);
+      setImportUrl("");
+    } catch (e) { showMsg(e.message, "err"); }
+    setSyncing(false);
+  };
+
+  const exportUrl = links?.export_url || "";
+  const currentUnit = units.find(u => u.id === unit);
+  const steps = links?.instructions?.[platform === "airbnb" ? "airbnb" : "mmt"];
+
+  const stepCard = (title, steps2, accent) => (
+      <div style={{ background: `${accent}0a`, border: `1px solid ${accent}33`, borderRadius: "10px", padding: "14px", flex: 1, minWidth: "240px" }}>
+        <div style={{ color: accent, fontSize: "10px", fontFamily: "'DM Mono', monospace", fontWeight: 700, letterSpacing: "0.1em", marginBottom: "10px" }}>{title}</div>
+        {steps2.map((s, i) => (
+            <div key={i} style={{ display: "flex", gap: "8px", marginBottom: "8px" }}>
+              <div style={{ width: "18px", height: "18px", borderRadius: "50%", background: `${accent}33`, color: accent, fontSize: "9px", fontFamily: "'DM Mono', monospace", fontWeight: 700, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>{i+1}</div>
+              <div style={{ color: "rgba(255,255,255,0.55)", fontSize: "11px", fontFamily: "'DM Mono', monospace", lineHeight: 1.5 }}>{s}</div>
+            </div>
+        ))}
+      </div>
+  );
+
   return (
-      <div onClick={e=>{e.stopPropagation();onClick(booking);}} style={{ background: isCancelled ? "rgba(255,255,255,0.05)" : `linear-gradient(135deg,${src.color}cc,${src.color}77)`,color: isCancelled ? "rgba(255,255,255,0.2)" : "#fff",borderRadius:"4px",padding:"2px 5px",fontSize:"10px",fontFamily:"'DM Mono', monospace",fontWeight:600,cursor:"pointer",marginBottom:"2px",display:"flex",alignItems:"center",gap:"3px",overflow:"hidden",whiteSpace:"nowrap",textOverflow:"ellipsis",textDecoration: isCancelled ? "line-through" : "none" }}>
-        <span style={{ fontSize:"9px",flexShrink:0 }}>{isCancelled ? "❌" : src.icon}</span>
-        <span style={{ overflow:"hidden",textOverflow:"ellipsis" }}>{(booking.guest_name || booking.guestName)||src.label}</span>
-        {half && <span style={{ fontSize:"8px",flexShrink:0 }}>½</span>}
+      <div style={{ padding: "16px 0" }}>
+        <div style={{ color: "rgba(255,255,255,0.3)", fontSize: "9px", fontFamily: "'DM Mono', monospace", letterSpacing: "0.15em", textTransform: "uppercase", marginBottom: "16px" }}>
+          Calendar Sync — Airbnb & MMT/GoIbibo
+        </div>
+
+        {/* How it works banner */}
+        <div style={{ background: "rgba(110,86,207,0.08)", border: "1px solid rgba(110,86,207,0.2)", borderRadius: "10px", padding: "12px 16px", marginBottom: "18px", display: "flex", gap: "12px", alignItems: "flex-start" }}>
+          <span style={{ fontSize: "20px", flexShrink: 0 }}>🔄</span>
+          <div>
+            <div style={{ color: "#C4B5FD", fontSize: "11px", fontFamily: "'DM Mono', monospace", fontWeight: 700, marginBottom: "4px" }}>How two-way sync works</div>
+            <div style={{ color: "rgba(255,255,255,0.45)", fontSize: "10px", fontFamily: "'DM Mono', monospace", lineHeight: 1.7 }}>
+              <b style={{ color: "rgba(255,255,255,0.6)" }}>Step 1:</b> Copy your Export URL below → paste it into Airbnb and MMT/GoIbibo (they'll auto-block dates from this app).<br/>
+              <b style={{ color: "rgba(255,255,255,0.6)" }}>Step 2:</b> Copy the iCal URL from Airbnb/MMT → paste it in the Import section below (blocks those dates in this app).<br/>
+              Both platforms re-check the URL every 1–3 hours automatically.
+            </div>
+          </div>
+        </div>
+
+        {/* Unit selector */}
+        <div style={{ display: "flex", gap: "6px", flexWrap: "wrap", marginBottom: "18px" }}>
+          {units.map(u => (
+              <button key={u.id} onClick={() => setUnit(u.id)} style={{ padding: "5px 14px", borderRadius: "20px", border: `1px solid ${unit === u.id ? "rgba(110,86,207,0.7)" : "rgba(255,255,255,0.1)"}`, background: unit === u.id ? "rgba(110,86,207,0.2)" : "transparent", color: unit === u.id ? "#C4B5FD" : "rgba(255,255,255,0.4)", fontFamily: "'DM Mono', monospace", fontSize: "11px", cursor: "pointer" }}>
+                {u.name}
+              </button>
+          ))}
+        </div>
+
+        {msg.text && (
+            <div style={{ color: msg.type === "err" ? "#FF7B7F" : "#74C69D", fontSize: "11px", marginBottom: "14px", padding: "8px 12px", background: msg.type === "err" ? "rgba(255,90,95,0.1)" : "rgba(39,201,63,0.08)", borderRadius: "6px", border: `1px solid ${msg.type === "err" ? "rgba(255,90,95,0.2)" : "rgba(39,201,63,0.2)"}` }}>
+              {msg.text}
+            </div>
+        )}
+
+        {/* ── EXPORT section ── */}
+        <div style={{ ...card, marginBottom: "18px" }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "12px" }}>
+            <div style={{ color: "rgba(255,255,255,0.7)", fontSize: "12px", fontFamily: "'DM Mono', monospace", fontWeight: 600 }}>📤 Export — Subscribe in Airbnb & MMT</div>
+            <Pill label={currentUnit?.name || "—"} color="#C4B5FD" size={9}/>
+          </div>
+          <div style={{ color: "rgba(255,255,255,0.3)", fontSize: "10px", fontFamily: "'DM Mono', monospace", marginBottom: "8px" }}>
+            This URL contains all your bookings as an iCal feed. Paste it into Airbnb and MMT to auto-block those dates on their calendars.
+          </div>
+          <div style={{ display: "flex", gap: "8px", alignItems: "center" }}>
+            <input readOnly value={exportUrl} style={{ ...inp, fontSize: "10px", color: "rgba(255,255,255,0.5)", flex: 1 }} onClick={e => e.target.select()}/>
+            <button onClick={() => copyUrl(exportUrl)} style={{ padding: "9px 14px", borderRadius: "8px", border: "none", background: "linear-gradient(135deg,#6E56CF,#9B7FE8)", color: "#fff", cursor: "pointer", fontFamily: "'DM Mono', monospace", fontSize: "10px", fontWeight: 700, whiteSpace: "nowrap" }}>Copy URL</button>
+          </div>
+          {exportUrl && (
+              <a href={exportUrl} download style={{ display: "inline-flex", alignItems: "center", gap: "5px", marginTop: "8px", color: "rgba(110,86,207,0.7)", fontSize: "10px", fontFamily: "'DM Mono', monospace", textDecoration: "none" }}
+                 onMouseEnter={e => e.currentTarget.style.color = "#C4B5FD"} onMouseLeave={e => e.currentTarget.style.color = "rgba(110,86,207,0.7)"}>
+                ⬇ Download .ics file
+              </a>
+          )}
+        </div>
+
+        {/* ── IMPORT section ── */}
+        <div style={{ ...card, marginBottom: "18px" }}>
+          <div style={{ color: "rgba(255,255,255,0.7)", fontSize: "12px", fontFamily: "'DM Mono', monospace", fontWeight: 600, marginBottom: "12px" }}>📥 Import — Block dates from Airbnb / MMT</div>
+
+          {/* Platform toggle */}
+          <div style={{ display: "flex", gap: "6px", marginBottom: "12px" }}>
+            {[["airbnb","✈ Airbnb","#FF385C"], ["mmt","🏨 GoIbibo/MMT","#F59E0B"]].map(([id, label, color]) => (
+                <button key={id} onClick={() => setPlatform(id)} style={{ padding: "5px 14px", borderRadius: "8px", border: `1px solid ${platform === id ? color : "rgba(255,255,255,0.08)"}`, background: platform === id ? `${color}22` : "transparent", color: platform === id ? color : "rgba(255,255,255,0.4)", fontFamily: "'DM Mono', monospace", fontSize: "11px", cursor: "pointer", fontWeight: 600 }}>
+                  {label}
+                </button>
+            ))}
+          </div>
+
+          <div style={{ color: "rgba(255,255,255,0.3)", fontSize: "10px", fontFamily: "'DM Mono', monospace", marginBottom: "8px" }}>
+            Paste the iCal URL from {platform === "airbnb" ? "Airbnb" : "MMT/GoIbibo"}. Booked dates will appear as blocked on this calendar.
+          </div>
+          <div style={{ display: "flex", gap: "8px" }}>
+            <input value={importUrl} onChange={e => setImportUrl(e.target.value)} placeholder={`Paste ${platform === "airbnb" ? "Airbnb" : "MMT/GoIbibo"} iCal URL…`} style={{ ...inp, flex: 1 }} onFocus={fi} onBlur={fb}/>
+            <button onClick={handleImport} disabled={syncing || !importUrl.trim()} style={{ padding: "9px 14px", borderRadius: "8px", border: "none", background: syncing ? "rgba(110,86,207,0.4)" : "linear-gradient(135deg,#6E56CF,#9B7FE8)", color: "#fff", cursor: syncing ? "not-allowed" : "pointer", fontFamily: "'DM Mono', monospace", fontSize: "10px", fontWeight: 700, whiteSpace: "nowrap", opacity: !importUrl.trim() ? 0.5 : 1 }}>
+              {syncing ? "Syncing…" : "Sync Now"}
+            </button>
+          </div>
+        </div>
+
+        {/* Platform-specific instructions */}
+        <div style={{ marginBottom: "18px" }}>
+          <div style={{ color: "rgba(255,255,255,0.3)", fontSize: "9px", fontFamily: "'DM Mono', monospace", letterSpacing: "0.1em", textTransform: "uppercase", marginBottom: "10px" }}>
+            Step-by-step: {platform === "airbnb" ? "Airbnb" : "MMT/GoIbibo"}
+          </div>
+          {steps && (
+              <div style={{ display: "flex", gap: "10px", flexWrap: "wrap" }}>
+                {stepCard("📤 Share your calendar (Export)", steps.import_steps, "#C4B5FD")}
+                {stepCard("📥 Import their calendar", steps.export_steps, "#60A5FA")}
+              </div>
+          )}
+        </div>
+
+        {/* Sync history */}
+        {syncResults.length > 0 && (
+            <div style={card}>
+              <div style={{ color: "rgba(255,255,255,0.4)", fontSize: "9px", fontFamily: "'DM Mono', monospace", letterSpacing: "0.1em", textTransform: "uppercase", marginBottom: "10px" }}>Recent Syncs</div>
+              {syncResults.map((r, i) => (
+                  <div key={i} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "7px 0", borderBottom: i < syncResults.length - 1 ? "1px solid rgba(255,255,255,0.04)" : "none" }}>
+                    <div style={{ color: "rgba(255,255,255,0.5)", fontSize: "10px", fontFamily: "'DM Mono', monospace" }}>
+                      {r.platform.toUpperCase()} → {r.unit}
+                    </div>
+                    <div style={{ display: "flex", gap: "8px", alignItems: "center" }}>
+                      <Pill label={`${r.imported} imported`} color="#74C69D" size={9}/>
+                      {r.skipped > 0 && <Pill label={`${r.skipped} skipped`} color="#94A3B8" size={9}/>}
+                      <span style={{ color: "rgba(255,255,255,0.2)", fontSize: "9px", fontFamily: "'DM Mono', monospace" }}>{r.time}</span>
+                    </div>
+                  </div>
+              ))}
+            </div>
+        )}
       </div>
   );
 }
 
-function BookingForm({ date, unit, onSave, onClose, editBooking, allSources }) {
-  const [form,setForm] = useState(editBooking || { guest_name: editBooking?.guest_name || editBooking?.guestName || "", source:"direct", start_date: editBooking?.start_date || date, end_date: editBooking?.end_date || date, check_in: editBooking?.check_in || editBooking?.checkIn || "14:00", check_out: editBooking?.check_out || editBooking?.checkOut || "11:00", amount: editBooking?.amount || "", guest_phone: editBooking?.guest_phone || "", guest_count: editBooking?.guest_count || "1", status: editBooking?.status || "confirmed", payment_status: editBooking?.payment_status || "pending", payment_method: editBooking?.payment_method || "UPI", notes: editBooking?.notes || "" });
-  const [error,setError]=useState("");
-
-  const handleSave=async()=>{
-    if(!form.guest_name.trim()) return setError("Guest name is required.");
-    if(new Date(form.start_date) > new Date(form.end_date)) return setError("Checkout date cannot be prior to Check-in date.");
-    if(!form.amount||isNaN(Number(form.amount))) return setError("Please enter a valid amount.");
-    setError("");
-    await onSave({ ...form, id:form.id||uid(), unit_id:unit.id });
-  };
-
+function AdminPanel({ units }) {
+  const [users,setUsers]=useState([]); const [selUnit,setSelUnit]=useState(units[0]?.id||"");
+  const [perms,setPerms]=useState([]); const [loading,setLoading]=useState(false); const [msg,setMsg]=useState("");
+  useEffect(()=>{API.allUsers().then(setUsers).catch(()=>{});}, []);
+  useEffect(()=>{ if(!selUnit) return; API.getPerms(selUnit).then(setPerms).catch(()=>{}); },[selUnit]);
+  const showMsg=t=>{ setMsg(t); setTimeout(()=>setMsg(""),2000); };
+  const grant=async(uid)=>{ setLoading(true); await API.grantPerm(selUnit,uid); setPerms(await API.getPerms(selUnit)); setLoading(false); showMsg("Access granted ✓"); };
+  const revoke=async(uid)=>{ setLoading(true); await API.revokePerm(selUnit,uid); setPerms(await API.getPerms(selUnit)); setLoading(false); showMsg("Access revoked"); };
+  const grantedIds=new Set(perms.map(p=>p.user_id));
+  const unit=units.find(u=>u.id===selUnit);
   return (
-      <>
-        <div style={{ display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:"20px" }}>
-          <div>
-            <div style={{ color:"#F0EEF8",fontSize:"18px",fontFamily:"'Playfair Display', serif",fontWeight:700 }}>{editBooking?"Edit":"New Range"} Booking</div>
-          </div>
-          <button onClick={onClose} style={{ background:"rgba(255,255,255,0.06)",border:"none",borderRadius:"8px",color:"rgba(255,255,255,0.5)",cursor:"pointer",fontSize:"18px",width:"34px",height:"34px" }}>×</button>
+      <div style={{padding:"16px 0"}}>
+        <div style={{color:"rgba(255,255,255,0.3)",fontSize:"9px",fontFamily:"'DM Mono', monospace",letterSpacing:"0.15em",textTransform:"uppercase",marginBottom:"14px"}}>Admin — User Access Control</div>
+        <div style={{display:"flex",gap:"6px",flexWrap:"wrap",marginBottom:"16px"}}>
+          {units.map(u=><button key={u.id} onClick={()=>setSelUnit(u.id)} style={{padding:"5px 14px",borderRadius:"20px",border:`1px solid ${selUnit===u.id?"rgba(110,86,207,0.7)":"rgba(255,255,255,0.1)"}`,background:selUnit===u.id?"rgba(110,86,207,0.2)":"transparent",color:selUnit===u.id?"#C4B5FD":"rgba(255,255,255,0.4)",fontFamily:"'DM Mono', monospace",fontSize:"11px",cursor:"pointer"}}>{u.name}</button>)}
         </div>
-        <div style={{ display:"grid",gap:"14px" }}>
-          <div><label style={lbl}>Guest Name</label><input style={inp} value={form.guest_name} onChange={e=>setForm({...form, guest_name: e.target.value})}/></div>
-          <div style={{ display:"grid",gridTemplateColumns:"1fr 1fr",gap:"10px" }}>
-            <div><label style={lbl}>Start Date</label><input type="date" style={inp} value={form.start_date} onChange={e=>setForm({...form, start_date: e.target.value})}/></div>
-            <div><label style={lbl}>End Date</label><input type="date" style={inp} value={form.end_date} onChange={e=>setForm({...form, end_date: e.target.value})}/></div>
+        {msg&&<div style={{color:"#74C69D",fontSize:"11px",fontFamily:"'DM Mono', monospace",marginBottom:"12px",padding:"8px 12px",background:"rgba(39,201,63,0.08)",borderRadius:"6px",border:"1px solid rgba(39,201,63,0.2)"}}>{msg}</div>}
+        <div style={card}>
+          <div style={{color:"rgba(255,255,255,0.4)",fontSize:"11px",fontFamily:"'DM Mono', monospace",marginBottom:"12px"}}>Who can see <span style={{color:"#C4B5FD"}}>{unit?.name}</span>?</div>
+          <div style={{display:"grid",gap:"6px"}}>
+            {users.filter(u=>u.role!=="admin").map(u=>{
+              const has=grantedIds.has(u.id);
+              return <div key={u.id} style={{display:"flex",alignItems:"center",gap:"10px",padding:"8px 12px",background:"rgba(255,255,255,0.02)",borderRadius:"8px",border:`1px solid ${has?"rgba(110,86,207,0.2)":"rgba(255,255,255,0.05)"}`}}>
+                {u.avatar?<img src={u.avatar} alt="" style={{width:"28px",height:"28px",borderRadius:"50%",flexShrink:0,objectFit:"cover"}}/>:<div style={{width:"28px",height:"28px",borderRadius:"50%",background:"rgba(110,86,207,0.3)",display:"flex",alignItems:"center",justifyContent:"center",color:"#C4B5FD",fontSize:"12px",flexShrink:0}}>{(u.name||u.email)[0].toUpperCase()}</div>}
+                <div style={{flex:1,minWidth:0}}>
+                  <div style={{color:"#F0EEF8",fontSize:"11px",fontFamily:"'DM Mono', monospace",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{u.name}</div>
+                  <div style={{color:"rgba(255,255,255,0.3)",fontSize:"9px",fontFamily:"'DM Mono', monospace",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{u.email}</div>
+                </div>
+                <button onClick={()=>has?revoke(u.id):grant(u.id)} disabled={loading} style={{padding:"4px 10px",borderRadius:"6px",border:"none",background:has?"rgba(255,90,95,0.15)":"rgba(110,86,207,0.2)",color:has?"#FF7B7F":"#C4B5FD",cursor:"pointer",fontFamily:"'DM Mono', monospace",fontSize:"9px",fontWeight:600,whiteSpace:"nowrap"}}>
+                  {has?"Revoke":"Grant"}
+                </button>
+              </div>;
+            })}
+            {users.filter(u=>u.role!=="admin").length===0&&<div style={{color:"rgba(255,255,255,0.2)",fontFamily:"'DM Mono', monospace",fontSize:"12px",textAlign:"center",padding:"20px"}}>No other users registered yet</div>}
           </div>
-          <div style={{ display:"grid",gridTemplateColumns:"1fr 1fr",gap:"10px" }}>
-            <div><label style={lbl}>Guest Phone</label><input style={inp} value={form.guest_phone} onChange={e=>setForm({...form, guest_phone: e.target.value})} placeholder="+91"/></div>
-            <div><label style={lbl}>Total Guests</label><input type="number" style={inp} value={form.guest_count} onChange={e=>setForm({...form, guest_count: e.target.value})}/></div>
-          </div>
-          <div style={{ display:"grid",gridTemplateColumns:"1fr 1fr",gap:"10px" }}>
-            <div>
-              <label style={lbl}>Booking Status</label>
-              <select style={inp} value={form.status} onChange={e=>setForm({...form, status: e.target.value})}>
-                {BOOKING_STATUSES.map(s => <option key={s.id} value={s.id}>{s.label}</option>)}
-              </select>
-            </div>
-            <div>
-              <label style={lbl}>Payment Status</label>
-              <select style={inp} value={form.payment_status} onChange={e=>setForm({...form, payment_status: e.target.value})}>
-                {PAYMENT_STATUSES.map(s => <option key={s.id} value={s.id}>{s.label}</option>)}
-              </select>
-            </div>
-          </div>
-          <div style={{ display:"grid",gridTemplateColumns:"1fr 1fr",gap:"10px" }}>
-            <div>
-              <label style={lbl}>Payment Method</label>
-              <select style={inp} value={form.payment_method} onChange={e=>setForm({...form, payment_method: e.target.value})}>
-                <option value="UPI">UPI / QR</option>
-                <option value="Cash">Cash</option>
-                <option value="Bank Transfer">Bank Transfer</option>
-              </select>
-            </div>
-            <div><label style={lbl}>Amount (₹)</label><input type="number" style={inp} value={form.amount} onChange={e=>setForm({...form, amount: e.target.value})}/></div>
-          </div>
-          <div>
-            <label style={lbl}>Booking Source</label>
-            <select style={inp} value={form.source} onChange={e=>setForm({...form, source: e.target.value})}>
-              {allSources.map(s => <option key={s.id} value={s.id}>{s.icon} {s.label}</option>)}
-            </select>
-          </div>
-          <div><label style={lbl}>Notes</label><textarea style={inp} value={form.notes} onChange={e=>setForm({...form, notes: e.target.value})}/></div>
         </div>
-        {error&&<div style={{ color:"#FF7B7F",fontSize:"11px",marginTop:"10px" }}>⚠ {error}</div>}
-        <div style={{ display:"flex",gap:"10px",marginTop:"20px" }}>
-          <button onClick={handleSave} style={{ flex:1,padding:"11px",borderRadius:"8px",border:"none",background:"linear-gradient(135deg,#6E56CF,#9B7FE8)",color:"#fff",fontWeight:700 }}>Save Booking</button>
-        </div>
-      </>
+      </div>
   );
 }
 
-function BookingDetail({ booking, unit, onClose, onEdit, onDelete }) {
-  const currentStatus = booking.status || "confirmed";
-  const currentPaymentStatus = booking.payment_status || "pending";
-  return (
-      <>
-        <div style={{ display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:"20px" }}>
-          <div>
-            <div style={{ color:"#F0EEF8",fontSize:"20px",fontFamily:"'Playfair Display', serif",fontWeight:700 }}>{booking.guest_name || booking.guestName}</div>
-            <div style={{ color:"rgba(255,255,255,0.35)",fontSize:"11px" }}>Range: {booking.start_date || booking.date} to {booking.end_date || booking.date}</div>
-          </div>
-          <button onClick={onClose} style={{ background:"transparent",border:"none",color:"#fff",fontSize:"18px" }}>×</button>
-        </div>
-        <div style={{ display:"grid",gap:"10px",marginBottom:"20px" }}>
-          <div style={{ background:"rgba(255,255,255,0.02)", padding:"12px", borderRadius:"8px" }}>
-            <span style={lbl}>Status Workflow / Finance</span>
-            <div style={{ color:"#C4B5FD", fontSize:"14px", fontWeight:700, marginTop:"4px" }}>
-              {currentStatus.toUpperCase()} — {currentPaymentStatus.toUpperCase()} (₹{Number(booking.amount).toLocaleString("en-IN")})
-            </div>
-          </div>
-          {booking.guest_phone && <div style={{ color:"#fff", fontSize:"12px" }}>📞 Phone: {booking.guest_phone}</div>}
-          {booking.notes && <div style={{ color:"rgba(255,255,255,0.6)", fontSize:"12px" }}>📝 Notes: {booking.notes}</div>}
-        </div>
-        <div style={{ display:"flex",gap:"10px" }}>
-          <button onClick={() => onDelete(booking.id)} style={{ padding:"10px",background:"rgba(239,68,68,0.2)",border:"1px solid #EF4444",color:"#EF4444",borderRadius:"6px" }}>Delete</button>
-          <button onClick={() => onEdit(booking)} style={{ flex:1,padding:"10px",background:"#6E56CF",color:"#fff",border:"none",borderRadius:"6px",fontWeight:700 }}>Edit Booking</button>
-        </div>
-      </>
-  );
-}
-
+// ── STATUS BADGE ──────────────────────────────────────────────────────────────
 function StatusBadge({ status }) {
-  const cfg={ loading:{bg:"rgba(255,189,46,0.12)",border:"rgba(255,189,46,0.3)",color:"#FFBD2E",dot:"#FFBD2E",label:"Connecting…"}, saving:{bg:"rgba(110,86,207,0.12)",border:"rgba(110,86,207,0.3)",color:"#C4B5FD",dot:"#9B7FE8",label:"Saving…"}, saved:{bg:"rgba(39,201,63,0.1)",border:"rgba(39,201,63,0.25)",color:"#74C69D",dot:"#27C93F",label:"✦ Synced"}, error:{bg:"rgba(255,90,95,0.1)",border:"rgba(255,90,95,0.3)",color:"#FF7B7F",dot:"#FF5A5F",label:"⚠ Error"} }[status]||{};
-  return <div style={{ display:"flex",alignItems:"center",gap:"6px",background:cfg.bg,border:`1px solid ${cfg.border}`,borderRadius:"20px",padding:"4px 12px" }}><div style={{ width:"6px",height:"6px",borderRadius:"50%",background:cfg.dot }}/><span style={{ color:cfg.color,fontSize:"9px",fontFamily:"'DM Mono', monospace" }}>{cfg.label}</span></div>;
+  const c={loading:{bg:"rgba(255,189,46,0.12)",b:"rgba(255,189,46,0.3)",c:"#FFBD2E",d:"#FFBD2E",l:"Connecting…"},saving:{bg:"rgba(110,86,207,0.12)",b:"rgba(110,86,207,0.3)",c:"#C4B5FD",d:"#9B7FE8",l:"Saving…"},saved:{bg:"rgba(39,201,63,0.1)",b:"rgba(39,201,63,0.25)",c:"#74C69D",d:"#27C93F",l:"✦ Synced"},error:{bg:"rgba(255,90,95,0.1)",b:"rgba(255,90,95,0.3)",c:"#FF7B7F",d:"#FF5A5F",l:"⚠ Error"}}[status]||{};
+  return <div style={{display:"flex",alignItems:"center",gap:"5px",background:c.bg,border:`1px solid ${c.b}`,borderRadius:"20px",padding:"3px 10px"}}><div style={{width:"5px",height:"5px",borderRadius:"50%",background:c.d,animation:(status==="saving"||status==="loading")?"pulse 1s infinite":"none"}}/><span style={{color:c.c,fontSize:"9px",fontFamily:"'DM Mono', monospace",letterSpacing:"0.08em"}}>{c.l}</span></div>;
 }
 
+// ── MAIN APP ──────────────────────────────────────────────────────────────────
 export default function App() {
-  const today = new Date();
-  const [user,setUser]             = useState(null);
-  const [authChecked,setAuthChecked] = useState(false);
-  const [units,setUnits]           = useState([]);
-  const [selectedUnit,setSelectedUnit] = useState(null);
-  const [bookings,setBookings]     = useState({});
-  const [customSources,setCustomSources] = useState([]);
-  const [currentYear,setCurrentYear] = useState(today.getFullYear());
-  const [currentMonth,setCurrentMonth] = useState(today.getMonth());
-  const [status,setStatus]         = useState("loading");
-  const [modalState,setModalState] = useState(null);
-  const [activeTab,setActiveTab]   = useState("calendar");
-  const [syncing, setSyncing]      = useState(false);
-  const [showProfile, setShowProfile] = useState(false);
-
-  const allSources = useMemo(() => [...BASE_SOURCES, ...customSources], [customSources]);
-  const sourceMap = useMemo(() => Object.fromEntries(allSources.map(s => [s.id, s])), [allSources]);
-
-  const loadBookings = useCallback(()=>{
-    if(!selectedUnit) return;
-    setStatus("loading");
-    API2.bookings(selectedUnit.id).then(rows=>{
-      const map={};
-      (rows||[]).forEach(row => {
-        const start = row.start_date || row.date;
-        const end = row.end_date || row.date;
-        const stayDates = getDatesInRange(start, end);
-        stayDates.forEach(dateStr => {
-          if(!map[dateStr]) map[dateStr]=[];
-          map[dateStr].push(row);
-        });
-      });
-      setBookings(map); setStatus("saved");
-    }).catch(()=>setStatus("error"));
-  },[selectedUnit]);
+  const today=new Date();
+  const [user,setUser]=useState(null); const [authChecked,setAuthChecked]=useState(false);
+  const [units,setUnits]=useState([]); const [selUnit,setSelUnit]=useState(null);
+  const [bookings,setBookings]=useState({}); // keyed by checkin_date
+  const [year,setYear]=useState(today.getFullYear()); const [month,setMonth]=useState(today.getMonth());
+  const [status,setStatus]=useState("loading"); const [dbErr,setDbErr]=useState("");
+  const [modal,setModal]=useState(null); // {type, ...}
+  const [activeTab,setActiveTab]=useState("calendar");
+  const [showProfile,setShowProfile]=useState(false);
 
   useEffect(()=>{
-    const token=getToken();
-    if(!token){setAuthChecked(true);return;}
-    API2.verify().then(r=>{
-      setUser(r.user);
-      setAuthChecked(true);
-      API2.sources().then(srcs => setCustomSources(Array.isArray(srcs) ? srcs : [])).catch(()=>setStatus("error"));
-    }).catch(()=>{setToken(null);setAuthChecked(true);});
+    const t=getToken();
+    if(!t){setAuthChecked(true);return;}
+    API.verify().then(r=>{setUser(r.user);setAuthChecked(true);}).catch(()=>{setToken(null);setAuthChecked(true);});
   },[]);
 
   useEffect(()=>{
     if(!user) return;
-    API2.units().then(list=>{
-      setUnits(list||[]);
-      if(list?.length) setSelectedUnit(list[0]);
-      setStatus("saved");
-    }).catch(()=>setStatus("error"));
+    API.units().then(list=>{setUnits(list||[]);if(list?.length)setSelUnit(list[0]);setStatus("saved");}).catch(e=>{setStatus("error");setDbErr(e.message);});
   },[user]);
 
-  useEffect(()=>{ loadBookings(); },[loadBookings]);
+  useEffect(()=>{
+    if(!selUnit) return;
+    setStatus("loading"); setBookings({});
+    API.getBookings(selUnit.id).then(rows=>{
+      const map={};
+      (rows||[]).forEach(b=>{
+        // Index by every date in the booking range for calendar display
+        const ci=new Date(b.checkin_date), co=new Date(b.checkout_date);
+        for(let d=new Date(ci);d<co;d.setDate(d.getDate()+1)){
+          const k=d.toISOString().slice(0,10);
+          if(!map[k]) map[k]=[];
+          if(!map[k].find(x=>x.id===b.id)) map[k].push(b);
+        }
+      });
+      setBookings(map); setStatus("saved"); setDbErr("");
+    }).catch(e=>{setStatus("error");setDbErr(e.message);});
+  },[selUnit]);
 
-  const firstDay   = new Date(currentYear,currentMonth,1).getDay();
-  const daysInMonth = new Date(currentYear,currentMonth+1,0).getDate();
-  const prevMonth  = ()=>{if(currentMonth===0){setCurrentMonth(11);setCurrentYear(y=>y-1);}else setCurrentMonth(m=>m-1);};
-  const nextMonth  = ()=>{if(currentMonth===11){setCurrentMonth(0);setCurrentYear(y=>y+1);}else setCurrentMonth(m=>m+1);};
-  const getDay     = d => bookings[d]||[];
+  const firstDay=new Date(year,month,1).getDay();
+  const dim=new Date(year,month+1,0).getDate();
+  const prevM=()=>{if(month===0){setMonth(11);setYear(y=>y-1);}else setMonth(m=>m-1);};
+  const nextM=()=>{if(month===11){setMonth(0);setYear(y=>y+1);}else setMonth(m=>m+1);};
+  const getDay=d=>bookings[d]||[];
+  const todayStr=fmtDate(today.getFullYear(),today.getMonth(),today.getDate());
 
-  const handleSave=async booking=>{
+  // Local state update after save
+  const refreshBookings=useCallback(async()=>{
+    if(!selUnit) return;
+    const rows=await API.getBookings(selUnit.id);
+    const map={};
+    (rows||[]).forEach(b=>{
+      const ci=new Date(b.checkin_date), co=new Date(b.checkout_date);
+      for(let d=new Date(ci);d<co;d.setDate(d.getDate()+1)){
+        const k=d.toISOString().slice(0,10);
+        if(!map[k]) map[k]=[];
+        if(!map[k].find(x=>x.id===b.id)) map[k].push(b);
+      }
+    });
+    setBookings(map);
+  },[selUnit]);
+
+  const handleSave=async(b)=>{
     setStatus("saving");
-    try {
-      await API2.upsert(booking);
-      loadBookings();
-    } catch(e){setStatus("error");}
-    setModalState(null);
+    try{ await API.saveBooking(b); await refreshBookings(); setStatus("saved"); setDbErr(""); }
+    catch(e){ setStatus("error"); setDbErr(e.message); }
+    setModal(null);
   };
 
-  const handleDelete=async id=>{
+  const handleDelete=async(id)=>{
     setStatus("saving");
-    try {
-      await API2.deleteBooking(id);
-      loadBookings();
-    } catch(e){setStatus("error");}
-    setModalState(null);
+    try{ await API.deleteBooking(id); await refreshBookings(); setStatus("saved"); setDbErr(""); }
+    catch(e){ setStatus("error"); setDbErr(e.message); }
+    setModal(null);
   };
 
-  const handleAddUnit = async (name, loc) => {
-    try {
-      const list = await API2.addUnit(name, loc);
-      setUnits(list || []);
-      if(list?.length) setSelectedUnit(list[list.length - 1]);
-    } catch(e) { setStatus("error"); }
-    setModalState(null);
+  const handleStatusChange=async(id,newStatus)=>{
+    setStatus("saving");
+    try{ await API.patchBooking(id,{status:newStatus}); await refreshBookings(); setStatus("saved"); }
+    catch(e){ setStatus("error"); }
+    setModal(null);
   };
 
-  const runChannelSync = async () => {
-    if (!selectedUnit) return;
-    setSyncing(true); setStatus("loading");
-    try {
-      await API2.syncICal(selectedUnit.id);
-      alert(`Sync finished! Imported external events.`);
-      loadBookings();
-    } catch (e) {
-      alert("iCal synchronization failed.");
-      setStatus("error");
-    }
-    setSyncing(false);
+  const handlePaymentUpdate=async(id,payStatus)=>{
+    setStatus("saving");
+    const paid = payStatus==="paid" ? (bookings[Object.keys(bookings).find(k=>bookings[k].find(b=>b.id===id))]||[]).find(b=>b.id===id)?.total_amount||0 : undefined;
+    const patch = {payment_status:payStatus};
+    if(paid!==undefined) patch.paid_amount=paid;
+    try{ await API.patchBooking(id,patch); await refreshBookings(); setStatus("saved"); }
+    catch(e){ setStatus("error"); }
+    setModal(null);
   };
 
-  const tabBtn=(tab,label,icon)=>(
-      <button key={tab} onClick={()=>setActiveTab(tab)} style={{ display:"flex",alignItems:"center",gap:"6px",padding:"8px 16px",borderRadius:"8px",border:"none",background:activeTab===tab?"rgba(110,86,207,0.25)":"transparent",color:activeTab===tab?"#C4B5FD":"rgba(255,255,255,0.4)",cursor:"pointer",fontFamily:"'DM Mono', monospace",fontSize:"11px" }}>
-        <span>{icon}</span>{label}
+  const handleAddUnit=async(n,l)=>{
+    const list=await API.addUnit(n,l);
+    setUnits(list||[]);
+    const nu=(list||[]).find(u=>u.name===n);
+    if(nu) setSelUnit(nu);
+    setModal(null);
+  };
+
+  const handleLogout=()=>{setToken(null);setUser(null);setBookings({});setUnits([]);setSelUnit(null);};
+
+  if(!authChecked) return <div style={{minHeight:"100vh",background:"#0A0A12",display:"flex",alignItems:"center",justifyContent:"center",color:"rgba(255,255,255,0.3)",fontFamily:"'DM Mono', monospace",fontSize:"12px",letterSpacing:"0.1em"}}>Loading…</div>;
+  if(!user) return <LoginPage onLogin={u=>setUser(u)}/>;
+
+  const mPfx=`${year}-${String(month+1).padStart(2,"0")}`;
+  // Month bookings — deduplicated
+  const allMBks=Object.entries(bookings).filter(([d])=>d.startsWith(mPfx)).flatMap(([,l])=>l);
+  const mBks=[...new Map(allMBks.map(b=>[b.id,b])).values()].filter(b=>b.status!=="cancelled");
+  const totalRev=mBks.reduce((s,b)=>s+Number(b.total_amount||0),0);
+  const totalDue=mBks.reduce((s,b)=>s+Math.max(0,Number(b.total_amount||0)-Number(b.paid_amount||0)),0);
+
+  const tabBtn=(t,l,i)=>(
+      <button onClick={()=>setActiveTab(t)} style={{display:"flex",alignItems:"center",gap:"5px",padding:"7px 14px",borderRadius:"8px",border:"none",background:activeTab===t?"rgba(110,86,207,0.25)":"transparent",color:activeTab===t?"#C4B5FD":"rgba(255,255,255,0.4)",cursor:"pointer",fontFamily:"'DM Mono', monospace",fontSize:"10px",letterSpacing:"0.06em",whiteSpace:"nowrap"}}>
+        <span>{i}</span>{l}
       </button>
   );
 
-  if(!authChecked) return <div style={{ minHeight:"100vh",background:"#0A0A12",display:"flex",alignItems:"center",justifyContent:"center",color:"rgba(255,255,255,0.3)",fontFamily:"'DM Mono', monospace" }}>Loading Security Context…</div>;
-  if(!user) return <LoginPage onLogin={u=>setUser(u)} />;
-
-  const monthPrefix=`${currentYear}-${String(currentMonth+1).padStart(2,"0")}`;
-  const monthBks = Object.entries(bookings).filter(([d])=>d.startsWith(monthPrefix)).flatMap(([,l])=>l);
-  const uniqueMonthBookings = Array.from(new Map(monthBks.map(b => [b.id, b])).values());
-  const totalRevenue = uniqueMonthBookings.filter(b => b.status !== "cancelled").reduce((s,b)=>s+Number(b.amount||0),0);
-
   return (
-      <div style={{ minHeight:"100vh",background:"#0A0A12",fontFamily:"'DM Mono', monospace",overflowX:"hidden" }}>
+      <div style={{minHeight:"100vh",background:"#0A0A12",fontFamily:"'DM Mono', monospace",overflowX:"hidden"}}>
         <style>{`
         @import url('https://fonts.googleapis.com/css2?family=Playfair+Display:wght@700;900&family=DM+Mono:wght@400;500;600&display=swap');
-        @keyframes fadeIn{from{opacity:0}to{opacity:1}} @keyframes slideUp{from{opacity:0;transform:translateY(28px) scale(0.97)}to{opacity:1;transform:translateY(0) scale(1)}}
+        @keyframes fadeIn{from{opacity:0}to{opacity:1}} @keyframes slideUp{from{opacity:0;transform:translateY(24px) scale(0.97)}to{opacity:1;transform:translateY(0) scale(1)}} @keyframes pulse{0%,100%{opacity:1}50%{opacity:0.3}}
+        *{box-sizing:border-box} input[type="time"]::-webkit-calendar-picker-indicator{filter:invert(0.6)} input[type="date"]::-webkit-calendar-picker-indicator{filter:invert(0.6)}
+        textarea{font-family:'DM Mono',monospace!important} select{cursor:pointer} ::-webkit-scrollbar{width:3px} ::-webkit-scrollbar-thumb{background:rgba(255,255,255,0.1);border-radius:2px}
       `}</style>
 
-        {/* Header navigation element loops */}
-        <div style={{ background:"rgba(255,255,255,0.02)",borderBottom:"1px solid rgba(255,255,255,0.06)",padding:"12px 24px",display:"flex",alignItems:"center",justifyContent:"space-between",flexWrap:"wrap",gap:"10px" }}>
-          <div style={{ display:"flex",alignItems:"center",gap:"12px" }}>
-            <span style={{ fontSize:"22px" }}>🏢</span>
-            <div><div style={{ color:"#F0EEF8",fontSize:"18px",fontFamily:"'Playfair Display', serif",fontWeight:900 }}>Booking Manager</div></div>
+        {/* Header */}
+        <div style={{background:"rgba(255,255,255,0.02)",borderBottom:"1px solid rgba(255,255,255,0.06)",padding:"10px 20px",display:"flex",alignItems:"center",justifyContent:"space-between",flexWrap:"wrap",gap:"8px"}}>
+          <div style={{display:"flex",alignItems:"center",gap:"10px"}}>
+            <span style={{fontSize:"20px"}}>🏢</span>
+            <div>
+              <div style={{color:"rgba(255,255,255,0.3)",fontSize:"8px",letterSpacing:"0.18em",textTransform:"uppercase"}}>Property Manager</div>
+              <div style={{color:"#F0EEF8",fontSize:"16px",fontFamily:"'Playfair Display', serif",fontWeight:900}}>Booking Manager</div>
+            </div>
           </div>
-          <div style={{ display:"flex",alignItems:"center",gap:"10px" }}>
+          <div style={{display:"flex",alignItems:"center",gap:"6px",flexWrap:"wrap"}}>
             {tabBtn("calendar","Calendar","📅")}
             {tabBtn("dashboard","Reports","📊")}
-            {user.role==="admin" && tabBtn("admin","Admin","⚙")}
+            {tabBtn("sync","Sync","🔄")}
+            {user.role==="admin"&&tabBtn("admin","Admin","⚙")}
           </div>
-          <div style={{ display:"flex",alignItems:"center",gap:"10px" }}>
+          <div style={{display:"flex",alignItems:"center",gap:"8px"}}>
             <StatusBadge status={status}/>
-
-            <button onClick={()=>setShowProfile(true)} style={{ display:"flex",alignItems:"center",gap:"8px",background:"rgba(255,255,255,0.04)",border:"1px solid rgba(255,255,255,0.08)",borderRadius:"20px",padding:"4px 12px",cursor:"pointer" }}>
-              <div style={{ width:"16px",height:"16px",borderRadius:"50%",background:"#6E56CF",fontSize:"9px",display:"flex",alignItems:"center",justifyContent:"center",color:"#fff" }}>{(user.name||user.email)[0].toUpperCase()}</div>
-              <span style={{ color:"rgba(255,255,255,0.5)",fontSize:"10px" }}>{user.name || user.email}</span>
+            <button onClick={()=>setShowProfile(true)} style={{display:"flex",alignItems:"center",gap:"7px",background:"rgba(255,255,255,0.04)",border:"1px solid rgba(255,255,255,0.08)",borderRadius:"20px",padding:"3px 10px 3px 3px",cursor:"pointer"}}
+                    onMouseEnter={e=>e.currentTarget.style.background="rgba(255,255,255,0.08)"} onMouseLeave={e=>e.currentTarget.style.background="rgba(255,255,255,0.04)"}>
+              {user.avatar?<img src={user.avatar} alt="" style={{width:"22px",height:"22px",borderRadius:"50%",objectFit:"cover",border:"2px solid rgba(110,86,207,0.5)"}}/>
+                  :<div style={{width:"22px",height:"22px",borderRadius:"50%",background:"linear-gradient(135deg,#6E56CF,#9B7FE8)",display:"flex",alignItems:"center",justifyContent:"center",fontSize:"10px",fontWeight:700,color:"#fff"}}>{(user.name||user.email||"?")[0].toUpperCase()}</div>}
+              <span style={{color:"rgba(255,255,255,0.5)",fontSize:"10px",fontFamily:"'DM Mono', monospace",maxWidth:"100px",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{user.name||user.email}</span>
+              {user.role==="admin"&&<span style={{background:"rgba(110,86,207,0.3)",color:"#C4B5FD",borderRadius:"4px",padding:"1px 5px",fontSize:"8px"}}>ADMIN</span>}
             </button>
-
-            <button onClick={runChannelSync} disabled={syncing} style={{ padding:"5px 12px", background:"#F59E0B", color:"#000", border:"none", borderRadius:"20px", fontSize:"10px", cursor:"pointer", fontWeight:700 }}>
-              {syncing ? "Syncing..." : "🔄 Sync iCals"}
-            </button>
-            <button onClick={()=>{setToken(null);setUser(null);}} style={{ background:"rgba(255,90,95,0.1)",border:"1px solid rgba(255,90,95,0.2)",borderRadius:"8px",color:"#FF7B7F",cursor:"pointer",padding:"4px 10px",fontSize:"10px" }}>Sign out</button>
+            <button onClick={handleLogout} style={{background:"rgba(255,90,95,0.1)",border:"1px solid rgba(255,90,95,0.2)",borderRadius:"8px",color:"#FF7B7F",cursor:"pointer",padding:"4px 9px",fontSize:"10px",fontFamily:"'DM Mono', monospace"}}>Sign out</button>
           </div>
         </div>
 
-        {/* Property unit bar container layout */}
-        <div style={{ background:"rgba(110,86,207,0.05)",borderBottom:"1px solid rgba(110,86,207,0.12)",padding:"10px 24px",display:"flex",alignItems:"center",gap:"8px",flexWrap:"wrap" }}>
+        {/* Unit bar */}
+        <div style={{background:"rgba(110,86,207,0.04)",borderBottom:"1px solid rgba(110,86,207,0.1)",padding:"8px 20px",display:"flex",alignItems:"center",gap:"6px",flexWrap:"wrap",overflowX:"auto"}}>
+          <span style={{color:"rgba(255,255,255,0.2)",fontSize:"9px",letterSpacing:"0.12em",textTransform:"uppercase",whiteSpace:"nowrap"}}>Unit:</span>
           {units.map(u=>(
-              <button key={u.id} onClick={()=>setSelectedUnit(u)} style={{ padding:"5px 14px",borderRadius:"20px",border:`1px solid ${selectedUnit?.id===u.id?"rgba(110,86,207,0.7)":"rgba(255,255,255,0.1)"}`,background:selectedUnit?.id===u.id?"rgba(110,86,207,0.2)":"transparent",color:selectedUnit?.id===u.id?"#C4B5FD":"rgba(255,255,255,0.4)",cursor:"pointer" }}>
-                {u.name}
+              <button key={u.id} onClick={()=>setSelUnit(u)} style={{padding:"4px 12px",borderRadius:"20px",border:`1px solid ${selUnit?.id===u.id?"rgba(110,86,207,0.7)":"rgba(255,255,255,0.08)"}`,background:selUnit?.id===u.id?"rgba(110,86,207,0.2)":"transparent",color:selUnit?.id===u.id?"#C4B5FD":"rgba(255,255,255,0.4)",fontFamily:"'DM Mono', monospace",fontSize:"10px",cursor:"pointer",whiteSpace:"nowrap",fontWeight:selUnit?.id===u.id?600:400}}>
+                {u.name}{u.location&&<span style={{color:"rgba(255,255,255,0.2)",fontSize:"8px",marginLeft:"3px"}}>· {u.location.split(",")[0]}</span>}
               </button>
           ))}
-          <button onClick={()=>setModalState({type:"addUnit"})} style={{ padding:"5px 12px",borderRadius:"20px",border:"1px dashed rgba(255,255,255,0.12)",background:"transparent",color:"rgba(255,255,255,0.3)",fontSize:"11px",cursor:"pointer" }}>+ Add Unit</button>
+          <button onClick={()=>setModal({type:"addUnit"})} style={{padding:"4px 10px",borderRadius:"20px",border:"1px dashed rgba(255,255,255,0.1)",background:"transparent",color:"rgba(255,255,255,0.25)",fontFamily:"'DM Mono', monospace",fontSize:"10px",cursor:"pointer",whiteSpace:"nowrap"}}
+                  onMouseEnter={e=>{e.currentTarget.style.borderColor="rgba(110,86,207,0.4)";e.currentTarget.style.color="#C4B5FD";}} onMouseLeave={e=>{e.currentTarget.style.borderColor="rgba(255,255,255,0.1)";e.currentTarget.style.color="rgba(255,255,255,0.25)";}}>
+            + Add Unit
+          </button>
         </div>
 
-        <div style={{ maxWidth:"920px",margin:"0 auto",padding:"20px 16px" }}>
-          {activeTab==="dashboard" && <Dashboard units={units} sourceMap={sourceMap} allSources={allSources}/>}
-          {activeTab==="admin" && user.role==="admin" && <AdminPanel units={units}/>}
+        {dbErr&&<div style={{background:"rgba(255,90,95,0.08)",borderBottom:"1px solid rgba(255,90,95,0.2)",padding:"8px 20px",color:"#FF7B7F",fontSize:"10px"}}>⚠ {dbErr}</div>}
 
-          {activeTab==="calendar" && <>
-            <div style={{ display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:"10px",marginBottom:"20px" }}>
+        <div style={{maxWidth:"940px",margin:"0 auto",padding:"16px"}}>
+
+          {activeTab==="dashboard"&&<Dashboard units={units} user={user}/>}
+          {activeTab==="sync"&&<IcalSyncPanel units={units} selUnit={selUnit}/>}
+          {activeTab==="admin"&&user.role==="admin"&&<AdminPanel units={units}/>}
+
+          {activeTab==="calendar"&&<>
+            {/* Stats row */}
+            <div style={{display:"grid",gridTemplateColumns:"repeat(5,1fr)",gap:"8px",marginBottom:"16px"}}>
               {[
-                {label:"Bookings",   value:uniqueMonthBookings.filter(x=>x.status!=="cancelled").length, accent:"#C4B5FD"},
-                {label:"Revenue",    value:`₹${totalRevenue.toLocaleString("en-IN")}`, accent:"#86EFAC"},
-                {label:"Active Units", value:units.length, accent:"#A78BFA"},
-                {label:"Occupancy",  value:(()=>{
-                    const byDate={};
-                    monthBks.forEach(b=>{if(!byDate[b.date])byDate[b.date]=[];byDate[b.date].push(b);});
-                    const days=Object.values(byDate).reduce((s,bks)=>s+getDayOccupancy(bks),0);
-                    return `${Math.round((days/daysInMonth)*100)}%`;
-                  })(), accent:"#FCA5A5"},
+                {l:"Bookings",   v:mBks.length,                                   a:"#C4B5FD"},
+                {l:"Revenue",    v:inrFmt(totalRev),                               a:"#86EFAC"},
+                {l:"Due",        v:inrFmt(totalDue),                               a:totalDue>0?"#F59E0B":"#34D399"},
+                {l:"Nights",     v:mBks.reduce((s,b)=>s+Number(b.nights||1),0),   a:"#60A5FA"},
+                {l:"Occupancy",  v:(()=>{
+                    const bd={};
+                    mBks.forEach(b=>{const ci=new Date(b.checkin_date),co=new Date(b.checkout_date);for(let d=new Date(ci);d<co;d.setDate(d.getDate()+1)){const k=d.toISOString().slice(0,10);if(k.startsWith(mPfx)){if(!bd[k])bd[k]=[];bd[k].push(b);}}});
+                    const occ=Object.values(bd).reduce((s,bks)=>s+getDayOccupancy(bks),0);
+                    return `${Math.round(occ/dim*100)}%`;
+                  })(), a:"#FCA5A5"},
               ].map(s=>(
-                  <div key={s.label} style={{ background:"rgba(255,255,255,0.03)",border:"1px solid rgba(255,255,255,0.07)",borderRadius:"12px",padding:"12px 14px" }}>
-                    <div style={{ color:"rgba(255,255,255,0.3)",fontSize:"8px",textTransform:"uppercase" }}>{s.label}</div>
-                    <div style={{ color:s.accent,fontSize:"18px",fontFamily:"'Playfair Display', serif",fontWeight:700 }}>{s.value}</div>
+                  <div key={s.l} style={{background:"rgba(255,255,255,0.03)",border:"1px solid rgba(255,255,255,0.06)",borderRadius:"10px",padding:"10px 12px"}}>
+                    <div style={{color:"rgba(255,255,255,0.3)",fontSize:"7px",letterSpacing:"0.12em",textTransform:"uppercase",marginBottom:"3px"}}>{s.l}</div>
+                    <div style={{color:s.a,fontSize:"15px",fontFamily:"'Playfair Display', serif",fontWeight:700}}>{s.v}</div>
                   </div>
               ))}
             </div>
 
-            {selectedUnit && (
-                <div style={{ background: "rgba(255,255,255,0.02)", padding: "10px 16px", borderRadius: "8px", marginBottom: "20px", border: "1px solid rgba(255,255,255,0.06)", fontSize: "11px", color: "rgba(255,255,255,0.4)" }}>
-                  📌 <strong>Inbound Platform Export URL:</strong> <span style={{ color:"#C4B5FD" }}>{window.location.origin}/api/bookings?action=export_ical&unit_id={selectedUnit.id}</span>
-                </div>
-            )}
+            {/* Source pills */}
+            <div style={{display:"flex",gap:"6px",marginBottom:"14px",flexWrap:"wrap"}}>
+              {SOURCES.map(src=>{
+                const c=mBks.filter(b=>b.source===src.id).length;
+                return <div key={src.id} style={{background:`${src.color}0d`,border:`1px solid ${src.color}33`,borderRadius:"6px",padding:"3px 9px",display:"flex",alignItems:"center",gap:"4px"}}>
+                  <span style={{fontSize:"10px"}}>{src.icon}</span>
+                  <span style={{color:src.color,fontSize:"9px",fontFamily:"'DM Mono', monospace",fontWeight:600}}>{src.label}</span>
+                  <span style={{background:`${src.color}33`,color:src.color,borderRadius:"8px",padding:"0 5px",fontSize:"9px",fontFamily:"'DM Mono', monospace",fontWeight:700}}>{c}</span>
+                </div>;
+              })}
+            </div>
 
-            <div style={{ background:"rgba(255,255,255,0.025)",border:"1px solid rgba(255,255,255,0.08)",borderRadius:"16px 16px 0 0",padding:"16px 22px",display:"flex",alignItems:"center",justifyContent:"space-between" }}>
-              <button onClick={prevMonth} style={{ background:"rgba(255,255,255,0.06)",border:"none",borderRadius:"8px",color:"rgba(255,255,255,0.5)",cursor:"pointer",width:"34px",height:"34px",fontSize:"16px" }}>‹</button>
-              <div style={{ textAlign:"center" }}>
-                <div style={{ color:"#F0EEF8",fontSize:"20px",fontFamily:"'Playfair Display', serif",fontWeight:900 }}>{MONTHS[currentMonth]}</div>
-                <div style={{ color:"rgba(255,255,255,0.25)",fontSize:"11px" }}>{currentYear} · {selectedUnit?.name||""}</div>
+            {/* Calendar */}
+            <div style={{background:"rgba(255,255,255,0.025)",border:"1px solid rgba(255,255,255,0.07)",borderRadius:"14px 14px 0 0",padding:"14px 20px",display:"flex",alignItems:"center",justifyContent:"space-between"}}>
+              <button onClick={prevM} style={{background:"rgba(255,255,255,0.06)",border:"none",borderRadius:"7px",color:"rgba(255,255,255,0.5)",cursor:"pointer",width:"30px",height:"30px",fontSize:"15px",display:"flex",alignItems:"center",justifyContent:"center"}} onMouseEnter={e=>e.currentTarget.style.background="rgba(255,255,255,0.1)"} onMouseLeave={e=>e.currentTarget.style.background="rgba(255,255,255,0.06)"}>‹</button>
+              <div style={{textAlign:"center"}}>
+                <div style={{color:"#F0EEF8",fontSize:"18px",fontFamily:"'Playfair Display', serif",fontWeight:900}}>{MONTHS[month]}</div>
+                <div style={{color:"rgba(255,255,255,0.25)",fontSize:"10px",letterSpacing:"0.12em"}}>{year} · {selUnit?.name||""}</div>
               </div>
-              <button onClick={nextMonth} style={{ background:"rgba(255,255,255,0.06)",border:"none",borderRadius:"8px",color:"rgba(255,255,255,0.5)",cursor:"pointer",width:"34px",height:"34px",fontSize:"16px" }}>›</button>
+              <button onClick={nextM} style={{background:"rgba(255,255,255,0.06)",border:"none",borderRadius:"7px",color:"rgba(255,255,255,0.5)",cursor:"pointer",width:"30px",height:"30px",fontSize:"15px",display:"flex",alignItems:"center",justifyContent:"center"}} onMouseEnter={e=>e.currentTarget.style.background="rgba(255,255,255,0.1)"} onMouseLeave={e=>e.currentTarget.style.background="rgba(255,255,255,0.06)"}>›</button>
             </div>
-
-            <div style={{ display:"grid",gridTemplateColumns:"repeat(7,1fr)",background:"rgba(255,255,255,0.02)",borderLeft:"1px solid rgba(255,255,255,0.08)",borderRight:"1px solid rgba(255,255,255,0.08)" }}>
-              {DAYS.map(d=><div key={d} style={{ padding:"9px 0",textAlign:"center",color:"rgba(255,255,255,0.25)",fontSize:"9px",textTransform:"uppercase",borderBottom:"1px solid rgba(255,255,255,0.06)" }}>{d}</div>)}
+            <div style={{display:"grid",gridTemplateColumns:"repeat(7,1fr)",background:"rgba(255,255,255,0.02)",borderLeft:"1px solid rgba(255,255,255,0.07)",borderRight:"1px solid rgba(255,255,255,0.07)"}}>
+              {DAYS.map(d=><div key={d} style={{padding:"8px 0",textAlign:"center",color:d==="Sun"||d==="Sat"?"rgba(155,127,232,0.5)":"rgba(255,255,255,0.25)",fontSize:"8px",letterSpacing:"0.1em",textTransform:"uppercase",borderBottom:"1px solid rgba(255,255,255,0.05)"}}>{d}</div>)}
             </div>
-
-            <div style={{ display:"grid",gridTemplateColumns:"repeat(7,1fr)",border:"1px solid rgba(255,255,255,0.08)",borderTop:"none",borderRadius:"0 0 16px 16px",overflow:"hidden",background:"rgba(255,255,255,0.012)" }}>
-              {Array.from({length:firstDay}).map((_,i)=><div key={`e${i}`} style={{ minHeight:"90px",background:"rgba(0,0,0,0.12)",borderRight:"1px solid rgba(255,255,255,0.04)",borderBottom:"1px solid rgba(255,255,255,0.04)" }}/>)}
-              {Array.from({length:daysInMonth},(_,i)=>i+1).map(day=>{
-                const dateStr=fmt(currentYear,currentMonth,day);
+            <div style={{display:"grid",gridTemplateColumns:"repeat(7,1fr)",border:"1px solid rgba(255,255,255,0.07)",borderTop:"none",borderRadius:"0 0 14px 14px",overflow:"hidden",background:"rgba(255,255,255,0.01)"}}>
+              {Array.from({length:firstDay}).map((_,i)=><div key={`e${i}`} style={{minHeight:"88px",borderRight:"1px solid rgba(255,255,255,0.04)",borderBottom:"1px solid rgba(255,255,255,0.04)",background:"rgba(0,0,0,0.1)"}}/>)}
+              {Array.from({length:dim},(_,i)=>i+1).map(day=>{
+                const dateStr=fmtDate(year,month,day);
                 const dayBks=getDay(dateStr);
-                const occ=getDayOccupancy(dayBks);
-                const occColor = occ>=1?"#FF5A5F":occ>=0.5?"#FFBD2E":"transparent";
+                const activeBks=dayBks.filter(b=>b.status!=="cancelled");
+                const isToday=dateStr===todayStr;
+                const cappedCount=activeBks.filter(b=>CAPPED.includes(b.source)).length;
+                const isWE=(firstDay+day-1)%7===0||(firstDay+day-1)%7===6;
+                const occ=getDayOccupancy(activeBks);
+                const occDot=occ>=1?"#FF5A5F":occ>=0.5?"#F59E0B":null;
+                const pendingPay=activeBks.some(b=>b.payment_status==="pending");
                 return (
-                    <div key={day} onClick={()=>setModalState({type:"add",date:dateStr})} style={{ minHeight:"90px",padding:"7px 5px 5px",borderRight:"1px solid rgba(255,255,255,0.04)",borderBottom:"1px solid rgba(255,255,255,0.04)",cursor:"pointer",position:"relative" }}>
-                      <div style={{ display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:"4px" }}>
-                        <span style={{ fontSize:"11px",color:"rgba(255,255,255,0.4)" }}>{day}</span>
-                        {occ>0&&<div style={{ width:"6px",height:"6px",borderRadius:"50%",background:occColor }}/>}
-                      </div>
-                      {dayBks.map(b=><BookingBadge key={b.id} booking={b} sourceMap={sourceMap} onClick={bk=>setModalState({type:"detail",booking:bk})}/>)}
+                    <div key={day} onClick={()=>setModal({type:"add",date:dateStr})} style={{minHeight:"88px",padding:"6px 4px 4px",borderRight:"1px solid rgba(255,255,255,0.04)",borderBottom:"1px solid rgba(255,255,255,0.04)",cursor:"pointer",background:isToday?"rgba(110,86,207,0.07)":activeBks.length>0?"rgba(255,255,255,0.01)":"transparent",transition:"background 0.15s",position:"relative"}}
+                         onMouseEnter={e=>e.currentTarget.style.background=isToday?"rgba(110,86,207,0.11)":"rgba(255,255,255,0.03)"}
+                         onMouseLeave={e=>e.currentTarget.style.background=isToday?"rgba(110,86,207,0.07)":activeBks.length>0?"rgba(255,255,255,0.01)":"transparent"}>
+                      <div style={{width:"20px",height:"20px",borderRadius:"50%",display:"flex",alignItems:"center",justifyContent:"center",background:isToday?"linear-gradient(135deg,#6E56CF,#9B7FE8)":"transparent",color:isToday?"#fff":isWE?"rgba(155,127,232,0.6)":"rgba(255,255,255,0.4)",fontSize:"10px",fontWeight:isToday?700:400,marginBottom:"3px",boxShadow:isToday?"0 2px 8px rgba(110,86,207,0.5)":"none"}}>{day}</div>
+                      {dayBks.map(b=><BookingBadge key={b.id} booking={b} onClick={bk=>setModal({type:"detail",booking:bk})}/>)}
+                      {occDot&&<div style={{position:"absolute",top:"4px",right:"4px",width:"5px",height:"5px",borderRadius:"50%",background:occDot,boxShadow:`0 0 4px ${occDot}`}} title={`${Math.round(occ*100)}% occupied`}/>}
+                      {pendingPay&&<div style={{position:"absolute",bottom:"4px",right:"4px",fontSize:"8px",opacity:0.8}} title="Payment pending">💰</div>}
+                      {!dayBks.length&&<div style={{color:"rgba(255,255,255,0.07)",fontSize:"14px",textAlign:"center",marginTop:"4px"}}>+</div>}
                     </div>
                 );
               })}
             </div>
+
+            {/* Legend */}
+            <div style={{display:"flex",gap:"10px",marginTop:"12px",flexWrap:"wrap",justifyContent:"center"}}>
+              {SOURCES.map(s=><div key={s.id} style={{display:"flex",alignItems:"center",gap:"4px",color:"rgba(255,255,255,0.3)",fontSize:"8px"}}><div style={{width:"10px",height:"6px",borderRadius:"2px",background:s.color}}/>{s.icon} {s.label}</div>)}
+              <div style={{display:"flex",alignItems:"center",gap:"4px",color:"rgba(255,255,255,0.3)",fontSize:"8px"}}><div style={{width:"5px",height:"5px",borderRadius:"50%",background:"#FF5A5F"}}/>Full</div>
+              <div style={{display:"flex",alignItems:"center",gap:"4px",color:"rgba(255,255,255,0.3)",fontSize:"8px"}}><div style={{width:"5px",height:"5px",borderRadius:"50%",background:"#F59E0B"}}/>Half</div>
+              <div style={{display:"flex",alignItems:"center",gap:"4px",color:"rgba(255,255,255,0.3)",fontSize:"8px"}}><span>💰</span>Payment pending</div>
+            </div>
           </>}
         </div>
 
+        {/* ── Modals ── */}
         <Modal isOpen={showProfile} onClose={()=>setShowProfile(false)}>
-          <ProfileModal user={user} onClose={()=>setShowProfile(false)} onUpdate={(u)=>{setUser(u); setShowProfile(false);}}/>
+          <ProfileModal user={user} onClose={()=>setShowProfile(false)} onUpdate={u=>{setUser(u);setShowProfile(false);}}/>
         </Modal>
-
-        <Modal isOpen={modalState?.type==="addUnit"} onClose={()=>setModalState(null)}>
-          <AddUnitModal onAdd={handleAddUnit} onClose={()=>setModalState(null)}/>
+        <Modal isOpen={modal?.type==="addUnit"} onClose={()=>setModal(null)}>
+          {modal?.type==="addUnit"&&(
+              <>
+                <SectionHeader title="Add New Unit" onClose={()=>setModal(null)}/>
+                {(()=>{
+                  const [n,setN]=useState(""); const [l,setL]=useState(""); const [s,setS]=useState(false);
+                  return <div style={{display:"grid",gap:"12px"}}>
+                    <div><label style={lbl}>Unit Name</label><input style={inp} value={n} onChange={e=>setN(e.target.value)} placeholder="e.g. Unit 1627" onFocus={fi} onBlur={fb}/></div>
+                    <div><label style={lbl}>Location</label><input style={inp} value={l} onChange={e=>setL(e.target.value)} placeholder="e.g. Gaur City Center, Greater Noida" onFocus={fi} onBlur={fb}/></div>
+                    <div style={{display:"flex",gap:"8px"}}>
+                      <button onClick={()=>setModal(null)} style={{flex:1,padding:"9px",borderRadius:"8px",border:"1px solid rgba(255,255,255,0.1)",background:"transparent",color:"rgba(255,255,255,0.4)",cursor:"pointer",fontFamily:"'DM Mono', monospace",fontSize:"11px"}}>Cancel</button>
+                      <button onClick={async()=>{if(!n.trim()) return;setS(true);await handleAddUnit(n.trim(),l.trim());setS(false);}} disabled={s||!n.trim()} style={{flex:2,padding:"9px",borderRadius:"8px",border:"none",background:"linear-gradient(135deg,#6E56CF,#9B7FE8)",color:"#fff",cursor:"pointer",fontWeight:700,fontFamily:"'DM Mono', monospace",fontSize:"11px",opacity:s||!n.trim()?0.5:1}}>{s?"Adding…":"Add Unit"}</button>
+                    </div>
+                  </div>;
+                })()}
+              </>
+          )}
         </Modal>
-        <Modal isOpen={modalState?.type==="add"} onClose={()=>setModalState(null)}>
-          <BookingForm date={modalState?.date} unit={selectedUnit} onSave={handleSave} onClose={()=>setModalState(null)} editBooking={null} allSources={allSources}/>
+        <Modal isOpen={modal?.type==="add"} onClose={()=>setModal(null)} wide>
+          {modal?.type==="add"&&selUnit&&<BookingForm unit={selUnit} onSave={handleSave} onClose={()=>setModal(null)} defaultDate={modal.date}/>}
         </Modal>
-        <Modal isOpen={modalState?.type==="detail"} onClose={()=>setModalState(null)}>
-          <BookingDetail booking={modalState?.booking} unit={selectedUnit} onClose={()=>setModalState(null)} onEdit={bk=>setModalState({type:"edit",booking:bk})} onDelete={handleDelete}/>
+        <Modal isOpen={modal?.type==="detail"} onClose={()=>setModal(null)}>
+          {modal?.type==="detail"&&<BookingDetail booking={modal.booking} unit={selUnit} onClose={()=>setModal(null)} onEdit={b=>setModal({type:"edit",booking:b})} onDelete={handleDelete} onStatusChange={handleStatusChange} onPaymentUpdate={handlePaymentUpdate}/>}
         </Modal>
-        <Modal isOpen={modalState?.type==="edit"} onClose={()=>setModalState(null)}>
-          <BookingForm date={modalState?.booking?.start_date} unit={selectedUnit} onSave={handleSave} onClose={()=>setModalState(null)} editBooking={modalState?.booking} allSources={allSources}/>
+        <Modal isOpen={modal?.type==="edit"} onClose={()=>setModal(null)} wide>
+          {modal?.type==="edit"&&selUnit&&<BookingForm unit={selUnit} onSave={handleSave} onClose={()=>setModal(null)} editBooking={modal.booking}/>}
         </Modal>
       </div>
   );
