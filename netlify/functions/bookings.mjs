@@ -78,8 +78,10 @@ function calcNights(checkin, checkout) {
   return Math.max(n, 1);
 }
 
-function commissionPct(source) {
-  return source === "airbnb" ? 3 : source === "goibibo" ? 18 : 0;
+function addDays(dateStr, n) {
+  const d = new Date(dateStr);
+  d.setDate(d.getDate() + n);
+  return d.toISOString().slice(0,10);
 }
 
 export default async function handler(req) {
@@ -164,9 +166,7 @@ export default async function handler(req) {
     // ── POST upsert booking ───────────────────────────────────────────────
     if (action === "bookings" && method === "POST") {
       const b = await req.json();
-      const nights  = calcNights(b.checkin_date, b.checkout_date);
-      const commPct = commissionPct(b.source);
-      const commAmt = parseFloat(((b.total_amount||0) * commPct / 100).toFixed(2));
+      const nights  = calcNights(b.checkin_date, b.checkout_date === b.checkin_date ? addDays(b.checkout_date,1) : b.checkout_date);
       await sbUpsert("bookings", {
         id:                     b.id,
         unit_id:                b.unit_id,
@@ -190,8 +190,8 @@ export default async function handler(req) {
         payment_status:         b.payment_status||"pending",
         security_deposit:       parseFloat(b.security_deposit)||0,
         deposit_returned:       b.deposit_returned||false,
-        platform_commission_pct: commPct,
-        platform_commission_amt: commAmt,
+        platform_commission_pct: 0,
+        platform_commission_amt: 0,
         overflow_to:            b.overflow_to||null,
         notes:                  b.notes||"",
         special_requests:       b.special_requests||"",

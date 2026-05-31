@@ -4,11 +4,11 @@ import { useState, useEffect, useCallback, useMemo } from "react";
 const MONTHS = ["January","February","March","April","May","June","July","August","September","October","November","December"];
 const DAYS   = ["Sun","Mon","Tue","Wed","Thu","Fri","Sat"];
 const SOURCES = [
-  { id:"direct",  label:"Direct",      icon:"🤝", color:"#60A5FA", commission:0 },
-  { id:"airbnb",  label:"Airbnb",      icon:"✈",  color:"#FF385C", commission:3 },
-  { id:"goibibo", label:"GoIbibo/MMT", icon:"🏨", color:"#F59E0B", commission:18 },
-  { id:"ekant",   label:"Ekant",       icon:"👤", color:"#A78BFA", commission:0 },
-  { id:"urmit",   label:"Urmit",       icon:"👤", color:"#34D399", commission:0 },
+  { id:"direct",  label:"Direct",      icon:"🤝", color:"#60A5FA" },
+  { id:"airbnb",  label:"Airbnb",      icon:"✈",  color:"#FF385C" },
+  { id:"goibibo", label:"GoIbibo/MMT", icon:"🏨", color:"#F59E0B" },
+  { id:"ekant",   label:"Ekant",       icon:"👤", color:"#A78BFA" },
+  { id:"urmit",   label:"Urmit",       icon:"👤", color:"#34D399" },
 ];
 const SRC = Object.fromEntries(SOURCES.map(s=>[s.id,s]));
 const CAPPED = ["direct","airbnb","goibibo","urmit"];
@@ -30,8 +30,8 @@ const PAY_STATUSES = [
 ];
 const PS = Object.fromEntries(PAY_STATUSES.map(s=>[s.id,s]));
 
-const PAY_METHODS = ["cash","upi","bank_transfer","online","other"];
-const ID_TYPES    = ["aadhaar","passport","driving_license","voter_id","other"];
+// Sources where payment checkbox applies (not Airbnb/MMT — they pay direct to account)
+const PAYMENT_CHECKBOX_SOURCES = ["direct","ekant","urmit"];
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 function fmtDate(y,m,d)  { return `${y}-${String(m+1).padStart(2,"0")}-${String(d).padStart(2,"0")}`; }
@@ -284,79 +284,84 @@ function ProfileModal({ user, onClose, onUpdate }) {
 }
 
 // ── BOOKING FORM ──────────────────────────────────────────────────────────────
+// ── BOOKING FORM ──────────────────────────────────────────────────────────────
 function BookingForm({ unit, onSave, onClose, editBooking, defaultDate }) {
   const today = new Date().toISOString().slice(0,10);
-  const [f,setF] = useState(editBooking ? {
-    checkin_date:        editBooking.checkin_date,
-    checkout_date:       editBooking.checkout_date,
-    guest_name:          editBooking.guest_name,
-    guest_phone:         editBooking.guest_phone||"",
-    guest_email:         editBooking.guest_email||"",
-    guest_id_type:       editBooking.guest_id_type||"",
-    guest_id_number:     editBooking.guest_id_number||"",
-    num_guests:          editBooking.num_guests||1,
-    source:              editBooking.source,
-    check_in_time:       editBooking.check_in_time||"14:00",
-    check_out_time:      editBooking.check_out_time||"11:00",
-    status:              editBooking.status||"confirmed",
-    amount_per_night:    editBooking.amount_per_night||"",
-    total_amount:        editBooking.total_amount||"",
-    paid_amount:         editBooking.paid_amount||"",
-    payment_method:      editBooking.payment_method||"",
-    payment_status:      editBooking.payment_status||"pending",
-    security_deposit:    editBooking.security_deposit||"",
-    deposit_returned:    editBooking.deposit_returned||false,
-    overflow_to:         editBooking.overflow_to||"",
-    notes:               editBooking.notes||"",
-    special_requests:    editBooking.special_requests||"",
-  } : {
-    checkin_date: defaultDate||today, checkout_date: addDays(defaultDate||today,1),
-    guest_name:"", guest_phone:"", guest_email:"", guest_id_type:"", guest_id_number:"",
-    num_guests:1, source:"direct", check_in_time:"14:00", check_out_time:"11:00",
-    status:"confirmed", amount_per_night:"", total_amount:"", paid_amount:"",
-    payment_method:"", payment_status:"pending", security_deposit:"",
-    deposit_returned:false, overflow_to:"", notes:"", special_requests:"",
-  });
-  const [err,setErr]=useState(""); const [saving,setSaving]=useState(false); const [tab,setTab]=useState("basic");
 
-  const set=(k,v)=>setF(p=>{
-    const n={...p,[k]:v};
-    // Auto-calc total when per-night or dates change
-    if(["amount_per_night","checkin_date","checkout_date"].includes(k)){
-      const nights=calcNights(n.checkin_date,n.checkout_date);
-      if(n.amount_per_night) n.total_amount=(parseFloat(n.amount_per_night)*nights).toFixed(0);
+  const getDefaults = () => {
+    if (editBooking) return {
+      checkin_date:     editBooking.checkin_date,
+      checkout_date:    editBooking.checkout_date,
+      guest_name:       editBooking.guest_name || "Guest",
+      guest_phone:      editBooking.guest_phone || "",
+      source:           editBooking.source,
+      check_in_time:    editBooking.check_in_time  || "11:00",
+      check_out_time:   editBooking.check_out_time || "19:00",
+      status:           editBooking.status || "confirmed",
+      amount_per_night: editBooking.amount_per_night || "",
+      total_amount:     editBooking.total_amount || "",
+      paid_amount:      editBooking.paid_amount || "",
+      payment_status:   editBooking.payment_status || "pending",
+      overflow_to:      editBooking.overflow_to || "",
+    };
+    return {
+      checkin_date: defaultDate || today, checkout_date: defaultDate || today,
+      guest_name: "Guest", guest_phone: "",
+      source: "direct", check_in_time: "11:00", check_out_time: "19:00",
+      status: "confirmed", amount_per_night: "", total_amount: "",
+      paid_amount: "", payment_status: "pending", overflow_to: "",
+    };
+  };
+
+  const [f,setF]           = useState(getDefaults);
+  const [err,setErr]       = useState("");
+  const [saving,setSaving] = useState(false);
+
+  const set = (k, v) => setF(p => {
+    const n = { ...p, [k]: v };
+    if (["amount_per_night","checkin_date","checkout_date"].includes(k)) {
+      const isSameDay = n.checkin_date === n.checkout_date;
+      const nights = isSameDay ? 1 : calcNights(n.checkin_date, n.checkout_date);
+      if (n.amount_per_night) n.total_amount = (parseFloat(n.amount_per_night) * nights).toFixed(0);
     }
     return n;
   });
 
-  const nights=calcNights(f.checkin_date,f.checkout_date);
-  const commPct = SRC[f.source]?.commission||0;
-  const commAmt = commPct>0 ? ((parseFloat(f.total_amount)||0)*commPct/100).toFixed(0) : 0;
-  const netRev  = ((parseFloat(f.total_amount)||0) - parseFloat(commAmt||0)).toFixed(0);
-  const due     = ((parseFloat(f.total_amount)||0)-(parseFloat(f.paid_amount)||0)).toFixed(0);
-  const preview_half = ["ekant","urmit","direct"].includes(f.source) && parseFloat(f.total_amount||0)<=1500 && nights===1;
+  const isSameDay  = f.checkin_date === f.checkout_date;
+  const nights     = isSameDay ? 1 : calcNights(f.checkin_date, f.checkout_date);
+  const showPayment = PAYMENT_CHECKBOX_SOURCES.includes(f.source);
+  const isPaid     = f.payment_status === "paid";
+  const halfDay    = isSameDay && ["ekant","urmit","direct"].includes(f.source) && parseFloat(f.total_amount||0) <= 1500;
 
-  const handleSave=async()=>{
-    if(!f.guest_name.trim()){setErr("Guest name is required.");return;}
-    if(!f.checkin_date||!f.checkout_date){setErr("Check-in and check-out dates required.");return;}
-    if(new Date(f.checkout_date)<=new Date(f.checkin_date)){setErr("Check-out must be after check-in.");return;}
-    if(!f.total_amount||isNaN(parseFloat(f.total_amount))){setErr("Total amount is required.");return;}
+  const handleSave = async () => {
+    if (!f.guest_name.trim()) { setErr("Guest name is required."); return; }
+    if (!f.checkin_date)      { setErr("Check-in date is required."); return; }
+    if (!f.total_amount || isNaN(parseFloat(f.total_amount))) { setErr("Amount is required."); return; }
+    if (isSameDay) {
+      const [ciH,ciM] = f.check_in_time.split(":").map(Number);
+      const [coH,coM] = f.check_out_time.split(":").map(Number);
+      if (coH*60+coM <= ciH*60+ciM) { setErr("Check-out time must be after check-in time for same-day bookings."); return; }
+    }
     setErr(""); setSaving(true);
     try {
-      await onSave({ id:editBooking?.id||uid(), unit_id:unit.id, ...f,
-        num_guests:Number(f.num_guests)||1,
-        amount_per_night:parseFloat(f.amount_per_night)||parseFloat(f.total_amount)/nights||0,
-        total_amount:parseFloat(f.total_amount)||0,
-        paid_amount:parseFloat(f.paid_amount)||0,
-        security_deposit:parseFloat(f.security_deposit)||0,
+      const payStatus = ["airbnb","goibibo"].includes(f.source) ? "paid" : f.payment_status;
+      const paidAmt   = payStatus === "paid" ? parseFloat(f.total_amount)||0 : parseFloat(f.paid_amount)||0;
+      await onSave({
+        id: editBooking?.id || uid(), unit_id: unit.id,
+        checkin_date: f.checkin_date, checkout_date: f.checkout_date, nights,
+        guest_name: f.guest_name.trim(), guest_phone: f.guest_phone.trim(),
+        source: f.source, check_in_time: f.check_in_time, check_out_time: f.check_out_time,
+        status: f.status,
+        amount_per_night: parseFloat(f.amount_per_night) || parseFloat(f.total_amount) || 0,
+        total_amount: parseFloat(f.total_amount) || 0,
+        paid_amount: paidAmt, payment_status: payStatus,
+        platform_commission_pct: 0, platform_commission_amt: 0,
+        security_deposit: 0, deposit_returned: false,
+        overflow_to: f.overflow_to, notes: "", special_requests: "",
       });
-    } catch(e){ setErr(e.message); }
+    } catch(e) { setErr(e.message); }
     setSaving(false);
   };
-
-  const tabBtn=(t,l)=>(
-      <button onClick={()=>setTab(t)} style={{padding:"6px 12px",borderRadius:"8px",border:"none",background:tab===t?"rgba(110,86,207,0.4)":"transparent",color:tab===t?"#C4B5FD":"rgba(255,255,255,0.35)",cursor:"pointer",fontFamily:"'DM Mono', monospace",fontSize:"10px",letterSpacing:"0.06em",whiteSpace:"nowrap"}}>{l}</button>
-  );
 
   return (
       <>
@@ -364,146 +369,144 @@ function BookingForm({ unit, onSave, onClose, editBooking, defaultDate }) {
           <div>
             <div style={{color:"rgba(110,86,207,0.8)",fontSize:"9px",fontFamily:"'DM Mono', monospace",letterSpacing:"0.15em",textTransform:"uppercase",marginBottom:"2px"}}>{unit.name}</div>
             <div style={{color:"#F0EEF8",fontSize:"16px",fontFamily:"'Playfair Display', serif",fontWeight:700}}>{editBooking?"Edit Booking":"New Booking"}</div>
-            {nights>0&&<div style={{color:"rgba(255,255,255,0.3)",fontSize:"10px",fontFamily:"'DM Mono', monospace",marginTop:"2px"}}>{nights} night{nights>1?"s":""} · {preview_half?"½ Half day":"Full day"}</div>}
+            <div style={{color:"rgba(255,255,255,0.3)",fontSize:"10px",fontFamily:"'DM Mono', monospace",marginTop:"2px"}}>
+              {isSameDay ? `Same day · ${halfDay?"½ Half day":"Full day"}` : `${nights} night${nights>1?"s":""}`}
+            </div>
           </div>
           <button onClick={onClose} style={{background:"rgba(255,255,255,0.06)",border:"none",borderRadius:"8px",color:"rgba(255,255,255,0.5)",cursor:"pointer",fontSize:"18px",width:"32px",height:"32px",display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}>×</button>
         </div>
 
-        {/* Tab nav */}
-        <div style={{display:"flex",gap:"4px",background:"rgba(255,255,255,0.03)",borderRadius:"8px",padding:"4px",marginBottom:"16px",overflowX:"auto"}}>
-          {tabBtn("basic","📅 Dates & Source")}
-          {tabBtn("guest","👤 Guest")}
-          {tabBtn("payment","💰 Payment")}
-          {tabBtn("notes","📝 Notes")}
+        <div style={{display:"grid",gap:"14px"}}>
+
+          {/* Dates */}
+          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:"10px"}}>
+            <div><label style={lbl}>Check-In Date</label>
+              <input style={inp} type="date" value={f.checkin_date}
+                     onChange={e=>{set("checkin_date",e.target.value); if(e.target.value>f.checkout_date) set("checkout_date",e.target.value);}}
+                     onFocus={fi} onBlur={fb}/>
+            </div>
+            <div><label style={lbl}>Check-Out Date</label>
+              <input style={inp} type="date" value={f.checkout_date} min={f.checkin_date}
+                     onChange={e=>set("checkout_date",e.target.value)} onFocus={fi} onBlur={fb}/>
+            </div>
+          </div>
+
+          {/* Times */}
+          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:"10px"}}>
+            <div><label style={lbl}>Check-In Time</label>
+              <input style={inp} type="time" value={f.check_in_time} onChange={e=>set("check_in_time",e.target.value)}/>
+            </div>
+            <div>
+              <label style={lbl}>Check-Out Time {isSameDay&&<span style={{color:"rgba(255,255,255,0.3)",fontSize:"8px"}}>(same day)</span>}</label>
+              <input style={inp} type="time" value={f.check_out_time} onChange={e=>set("check_out_time",e.target.value)}/>
+            </div>
+          </div>
+
+          {/* Quick presets */}
+          <div>
+            <label style={lbl}>Quick Presets</label>
+            <div style={{display:"flex",gap:"6px",flexWrap:"wrap"}}>
+              {[
+                {label:"1st Half",  ci:"11:00", co:"19:00", coDt:f.checkin_date,              tip:"11am – 7pm same day"},
+                {label:"2nd Half",  ci:"19:30", co:"10:00", coDt:addDays(f.checkin_date,1),   tip:"7:30pm – 10am next day"},
+                {label:"Full Day",  ci:"14:00", co:"11:00", coDt:addDays(f.checkin_date,1),   tip:"2pm – 11am next day"},
+                {label:"2 Nights",  ci:"14:00", co:"11:00", coDt:addDays(f.checkin_date,2),   tip:"2 nights"},
+              ].map(p=>(
+                  <button key={p.label} title={p.tip} onClick={()=>setF(prev=>({...prev,check_in_time:p.ci,check_out_time:p.co,checkout_date:p.coDt}))}
+                          style={{padding:"4px 10px",borderRadius:"6px",border:"1px solid rgba(255,255,255,0.1)",background:"rgba(255,255,255,0.04)",color:"rgba(255,255,255,0.55)",fontFamily:"'DM Mono', monospace",fontSize:"9px",cursor:"pointer",transition:"all 0.15s"}}
+                          onMouseEnter={e=>{e.currentTarget.style.borderColor="rgba(110,86,207,0.5)";e.currentTarget.style.color="#C4B5FD";}}
+                          onMouseLeave={e=>{e.currentTarget.style.borderColor="rgba(255,255,255,0.1)";e.currentTarget.style.color="rgba(255,255,255,0.55)";}}>
+                    {p.label}
+                  </button>
+              ))}
+            </div>
+          </div>
+
+          {/* Source */}
+          <div>
+            <label style={lbl}>Booking Source</label>
+            <div style={{display:"grid",gridTemplateColumns:"repeat(5,1fr)",gap:"5px"}}>
+              {SOURCES.map(s=>(
+                  <button key={s.id} onClick={()=>set("source",s.id)} style={{padding:"8px 4px",borderRadius:"8px",border:`1px solid ${f.source===s.id?s.color:"rgba(255,255,255,0.08)"}`,background:f.source===s.id?`${s.color}22`:"rgba(255,255,255,0.02)",color:f.source===s.id?s.color:"rgba(255,255,255,0.35)",fontFamily:"'DM Mono', monospace",fontSize:"9px",cursor:"pointer",display:"flex",flexDirection:"column",alignItems:"center",gap:"3px",transition:"all 0.15s"}}>
+                    <span style={{fontSize:"14px"}}>{s.icon}</span>
+                    <span style={{textAlign:"center",lineHeight:1.1}}>{s.label}</span>
+                  </button>
+              ))}
+            </div>
+          </div>
+
+          {/* Guest */}
+          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:"10px"}}>
+            <div><label style={lbl}>Guest Name</label>
+              <input style={inp} value={f.guest_name} onChange={e=>set("guest_name",e.target.value)} placeholder="Guest" onFocus={fi} onBlur={fb}/>
+            </div>
+            <div><label style={lbl}>Mobile Number</label>
+              <input style={inp} value={f.guest_phone} onChange={e=>set("guest_phone",e.target.value)} placeholder="+91 98765 43210" onFocus={fi} onBlur={fb}/>
+            </div>
+          </div>
+
+          {/* Amount */}
+          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:"10px"}}>
+            <div>
+              <label style={lbl}>Amount (₹){nights>1&&<span style={{color:"rgba(255,255,255,0.3)",fontSize:"8px"}}> per night</span>}</label>
+              <input style={inp} type="number" min="0" value={f.amount_per_night} onChange={e=>set("amount_per_night",e.target.value)} placeholder="e.g. 1800" onFocus={fi} onBlur={fb}/>
+            </div>
+            <div><label style={lbl}>Total Amount (₹)</label>
+              <input style={inp} type="number" min="0" value={f.total_amount} onChange={e=>set("total_amount",e.target.value)} placeholder="e.g. 1800" onFocus={fi} onBlur={fb}/>
+            </div>
+          </div>
+
+          {/* Half/full indicator */}
+          {parseFloat(f.total_amount)>0 && isSameDay && ["ekant","urmit","direct"].includes(f.source) && (
+              <div style={{display:"flex",alignItems:"center",gap:"6px"}}>
+            <span style={{background:halfDay?"rgba(251,191,36,0.15)":"rgba(52,211,153,0.15)",color:halfDay?"#FBbf24":"#34D399",borderRadius:"4px",padding:"3px 10px",fontSize:"10px",fontFamily:"'DM Mono', monospace"}}>
+              {halfDay?"½ Half Day (≤₹1500)":"Full Day (>₹1500)"}
+            </span>
+              </div>
+          )}
+
+          {/* Payment checkbox — Direct / Ekant / Urmit only */}
+          {showPayment && (
+              <div style={{background:"rgba(255,255,255,0.03)",border:"1px solid rgba(255,255,255,0.07)",borderRadius:"8px",padding:"12px 14px",display:"flex",alignItems:"center",gap:"12px"}}>
+                <input type="checkbox" id="paid-cb" checked={isPaid}
+                       onChange={e=>{set("payment_status",e.target.checked?"paid":"pending"); if(e.target.checked) set("paid_amount",f.total_amount); else set("paid_amount","");}}
+                       style={{width:"18px",height:"18px",accentColor:"#34D399",cursor:"pointer",flexShrink:0}}/>
+                <label htmlFor="paid-cb" style={{cursor:"pointer"}}>
+                  <div style={{color:isPaid?"#34D399":"#F59E0B",fontSize:"12px",fontFamily:"'DM Mono', monospace",fontWeight:600}}>
+                    {isPaid?"✓ Payment Received":"⏳ Payment Pending"}
+                  </div>
+                  <div style={{color:"rgba(255,255,255,0.3)",fontSize:"9px",fontFamily:"'DM Mono', monospace",marginTop:"2px"}}>
+                    {f.source==="direct"?"via UPI":`${f.source==="ekant"?"Ekant":"Urmit"} — settle at month end via UPI`}
+                  </div>
+                </label>
+              </div>
+          )}
+
+          {/* Airbnb / MMT note */}
+          {["airbnb","goibibo"].includes(f.source) && (
+              <div style={{background:"rgba(255,255,255,0.02)",border:"1px solid rgba(255,255,255,0.06)",borderRadius:"8px",padding:"10px 14px"}}>
+                <div style={{color:"rgba(255,255,255,0.4)",fontSize:"10px",fontFamily:"'DM Mono', monospace"}}>
+                  💳 {f.source==="airbnb"?"Airbnb":"MMT/GoIbibo"} payment deposited directly to your account
+                </div>
+              </div>
+          )}
+
+          {/* Status + Overflow */}
+          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:"10px"}}>
+            <div><label style={lbl}>Booking Status</label>
+              <select style={inp} value={f.status} onChange={e=>set("status",e.target.value)}>
+                {STATUSES.map(s=><option key={s.id} value={s.id} style={{background:"#1a1a2e"}}>{s.label}</option>)}
+              </select>
+            </div>
+            <div><label style={lbl}>Overflow to Ekant</label>
+              <div style={{display:"flex",alignItems:"center",gap:"8px",height:"38px"}}>
+                <input type="checkbox" id="ov" checked={f.overflow_to==="ekant"} onChange={e=>set("overflow_to",e.target.checked?"ekant":"")} style={{width:"16px",height:"16px",accentColor:"#A78BFA",cursor:"pointer"}}/>
+                <label htmlFor="ov" style={{color:"rgba(255,255,255,0.5)",fontSize:"11px",fontFamily:"'DM Mono', monospace",cursor:"pointer"}}>Pass to Ekant</label>
+              </div>
+            </div>
+          </div>
+
         </div>
-
-        {/* ── Tab: Basic ── */}
-        {tab==="basic"&&(
-            <div style={{display:"grid",gap:"12px"}}>
-              <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:"10px"}}>
-                <div><label style={lbl}>Check-In Date</label><input style={inp} type="date" value={f.checkin_date} onChange={e=>{set("checkin_date",e.target.value);if(e.target.value>=f.checkout_date)set("checkout_date",addDays(e.target.value,1));}} onFocus={fi} onBlur={fb}/></div>
-                <div><label style={lbl}>Check-Out Date</label><input style={inp} type="date" value={f.checkout_date} min={addDays(f.checkin_date,1)} onChange={e=>set("checkout_date",e.target.value)} onFocus={fi} onBlur={fb}/></div>
-              </div>
-              <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:"10px"}}>
-                <div><label style={lbl}>Check-In Time</label><input style={inp} type="time" value={f.check_in_time} onChange={e=>set("check_in_time",e.target.value)}/></div>
-                <div><label style={lbl}>Check-Out Time</label><input style={inp} type="time" value={f.check_out_time} onChange={e=>set("check_out_time",e.target.value)}/></div>
-              </div>
-              <div>
-                <label style={lbl}>Booking Source</label>
-                <div style={{display:"grid",gridTemplateColumns:"repeat(5,1fr)",gap:"5px"}}>
-                  {SOURCES.map(s=>(
-                      <button key={s.id} onClick={()=>set("source",s.id)} style={{padding:"7px 4px",borderRadius:"8px",border:`1px solid ${f.source===s.id?s.color:"rgba(255,255,255,0.08)"}`,background:f.source===s.id?`${s.color}22`:"rgba(255,255,255,0.02)",color:f.source===s.id?s.color:"rgba(255,255,255,0.35)",fontFamily:"'DM Mono', monospace",fontSize:"9px",cursor:"pointer",display:"flex",flexDirection:"column",alignItems:"center",gap:"3px",transition:"all 0.15s"}}>
-                        <span style={{fontSize:"14px"}}>{s.icon}</span><span style={{textAlign:"center",lineHeight:1.1}}>{s.label}</span>
-                        {s.commission>0&&<span style={{opacity:0.7,fontSize:"8px"}}>{s.commission}% fee</span>}
-                      </button>
-                  ))}
-                </div>
-              </div>
-              <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:"10px"}}>
-                <div>
-                  <label style={lbl}>Status</label>
-                  <select style={{...inp}} value={f.status} onChange={e=>set("status",e.target.value)}>
-                    {STATUSES.map(s=><option key={s.id} value={s.id} style={{background:"#1a1a2e"}}>{s.label}</option>)}
-                  </select>
-                </div>
-                <div>
-                  <label style={lbl}>Overflow to Ekant</label>
-                  <div style={{display:"flex",alignItems:"center",gap:"8px",height:"36px"}}>
-                    <input type="checkbox" id="ov" checked={f.overflow_to==="ekant"} onChange={e=>set("overflow_to",e.target.checked?"ekant":"")} style={{width:"16px",height:"16px",accentColor:"#A78BFA",cursor:"pointer"}}/>
-                    <label htmlFor="ov" style={{color:"rgba(255,255,255,0.5)",fontSize:"11px",fontFamily:"'DM Mono', monospace",cursor:"pointer"}}>Pass to Ekant</label>
-                  </div>
-                </div>
-              </div>
-            </div>
-        )}
-
-        {/* ── Tab: Guest ── */}
-        {tab==="guest"&&(
-            <div style={{display:"grid",gap:"12px"}}>
-              <div><label style={lbl}>Guest Name *</label><input style={inp} value={f.guest_name} onChange={e=>set("guest_name",e.target.value)} placeholder="Full name" onFocus={fi} onBlur={fb}/></div>
-              <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:"10px"}}>
-                <div><label style={lbl}>Phone</label><input style={inp} value={f.guest_phone} onChange={e=>set("guest_phone",e.target.value)} placeholder="+91 98765 43210" onFocus={fi} onBlur={fb}/></div>
-                <div><label style={lbl}>Email</label><input style={inp} type="email" value={f.guest_email} onChange={e=>set("guest_email",e.target.value)} placeholder="guest@email.com" onFocus={fi} onBlur={fb}/></div>
-              </div>
-              <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:"10px"}}>
-                <div>
-                  <label style={lbl}>ID Type</label>
-                  <select style={inp} value={f.guest_id_type} onChange={e=>set("guest_id_type",e.target.value)}>
-                    <option value="" style={{background:"#1a1a2e"}}>Select…</option>
-                    {ID_TYPES.map(t=><option key={t} value={t} style={{background:"#1a1a2e"}}>{t.charAt(0).toUpperCase()+t.slice(1).replace("_"," ")}</option>)}
-                  </select>
-                </div>
-                <div><label style={lbl}>ID Number</label><input style={inp} value={f.guest_id_number} onChange={e=>set("guest_id_number",e.target.value)} placeholder="XXXX XXXX XXXX" onFocus={fi} onBlur={fb}/></div>
-              </div>
-              <div><label style={lbl}>Number of Guests</label><input style={{...inp,width:"100px"}} type="number" min="1" max="20" value={f.num_guests} onChange={e=>set("num_guests",e.target.value)} onFocus={fi} onBlur={fb}/></div>
-            </div>
-        )}
-
-        {/* ── Tab: Payment ── */}
-        {tab==="payment"&&(
-            <div style={{display:"grid",gap:"12px"}}>
-              <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:"10px"}}>
-                <div><label style={lbl}>Per Night (₹)</label><input style={inp} type="number" min="0" value={f.amount_per_night} onChange={e=>set("amount_per_night",e.target.value)} placeholder="e.g. 1800" onFocus={fi} onBlur={fb}/></div>
-                <div><label style={lbl}>Total Amount (₹) *</label><input style={inp} type="number" min="0" value={f.total_amount} onChange={e=>set("total_amount",e.target.value)} placeholder="e.g. 5400" onFocus={fi} onBlur={fb}/></div>
-              </div>
-              <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:"10px"}}>
-                <div><label style={lbl}>Paid Amount (₹)</label><input style={inp} type="number" min="0" value={f.paid_amount} onChange={e=>set("paid_amount",e.target.value)} placeholder="0" onFocus={fi} onBlur={fb}/></div>
-                <div>
-                  <label style={lbl}>Payment Status</label>
-                  <select style={inp} value={f.payment_status} onChange={e=>set("payment_status",e.target.value)}>
-                    {PAY_STATUSES.map(s=><option key={s.id} value={s.id} style={{background:"#1a1a2e"}}>{s.label}</option>)}
-                  </select>
-                </div>
-              </div>
-              <div>
-                <label style={lbl}>Payment Method</label>
-                <div style={{display:"flex",gap:"6px",flexWrap:"wrap"}}>
-                  {PAY_METHODS.map(m=>(
-                      <button key={m} onClick={()=>set("payment_method",m)} style={{padding:"5px 10px",borderRadius:"6px",border:`1px solid ${f.payment_method===m?"rgba(110,86,207,0.7)":"rgba(255,255,255,0.08)"}`,background:f.payment_method===m?"rgba(110,86,207,0.2)":"transparent",color:f.payment_method===m?"#C4B5FD":"rgba(255,255,255,0.4)",fontFamily:"'DM Mono', monospace",fontSize:"10px",cursor:"pointer",transition:"all 0.15s"}}>
-                        {m.replace("_"," ").toUpperCase()}
-                      </button>
-                  ))}
-                </div>
-              </div>
-              <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:"10px"}}>
-                <div><label style={lbl}>Security Deposit (₹)</label><input style={inp} type="number" min="0" value={f.security_deposit} onChange={e=>set("security_deposit",e.target.value)} placeholder="0" onFocus={fi} onBlur={fb}/></div>
-                <div>
-                  <label style={lbl}>Deposit Returned</label>
-                  <div style={{display:"flex",alignItems:"center",gap:"8px",height:"36px"}}>
-                    <input type="checkbox" checked={f.deposit_returned} onChange={e=>set("deposit_returned",e.target.checked)} style={{width:"16px",height:"16px",accentColor:"#34D399",cursor:"pointer"}}/>
-                    <span style={{color:"rgba(255,255,255,0.5)",fontSize:"11px",fontFamily:"'DM Mono', monospace"}}>Yes, returned</span>
-                  </div>
-                </div>
-              </div>
-              {/* Summary */}
-              {parseFloat(f.total_amount)>0&&(
-                  <div style={{background:"rgba(110,86,207,0.08)",borderRadius:"10px",padding:"12px 14px",border:"1px solid rgba(110,86,207,0.2)"}}>
-                    <div style={{color:"rgba(255,255,255,0.3)",fontSize:"9px",fontFamily:"'DM Mono', monospace",letterSpacing:"0.1em",marginBottom:"8px"}}>PAYMENT SUMMARY</div>
-                    <div style={{display:"grid",gap:"4px"}}>
-                      {[
-                        ["Total",inrFmt(f.total_amount),"#F0EEF8"],
-                        ["Paid",inrFmt(f.paid_amount),"#34D399"],
-                        ["Due",inrFmt(due),parseFloat(due)>0?"#F59E0B":"#34D399"],
-                        ...(commPct>0?[[`${SRC[f.source]?.label} commission (${commPct}%)`,`-${inrFmt(commAmt)}`,"#FF7B7F"],["Net Revenue",inrFmt(netRev),"#C4B5FD"]]:[]),
-                      ].map(([k,v,c])=>(
-                          <div key={k} style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
-                            <span style={{color:"rgba(255,255,255,0.4)",fontSize:"11px",fontFamily:"'DM Mono', monospace"}}>{k}</span>
-                            <span style={{color:c,fontSize:"12px",fontFamily:"'Playfair Display', serif",fontWeight:700}}>{v}</span>
-                          </div>
-                      ))}
-                    </div>
-                  </div>
-              )}
-            </div>
-        )}
-
-        {/* ── Tab: Notes ── */}
-        {tab==="notes"&&(
-            <div style={{display:"grid",gap:"12px"}}>
-              <div><label style={lbl}>Internal Notes</label><textarea style={{...inp,resize:"vertical",minHeight:"80px"}} value={f.notes} onChange={e=>set("notes",e.target.value)} placeholder="Notes for your reference…" onFocus={fi} onBlur={fb}/></div>
-              <div><label style={lbl}>Guest's Special Requests</label><textarea style={{...inp,resize:"vertical",minHeight:"80px"}} value={f.special_requests} onChange={e=>set("special_requests",e.target.value)} placeholder="Early check-in, extra towels…" onFocus={fi} onBlur={fb}/></div>
-            </div>
-        )}
 
         {err&&<div style={{color:"#FF7B7F",fontSize:"11px",marginTop:"12px",padding:"8px 12px",background:"rgba(255,90,95,0.1)",borderRadius:"6px",border:"1px solid rgba(255,90,95,0.2)"}}>⚠ {err}</div>}
 
@@ -519,32 +522,33 @@ function BookingForm({ unit, onSave, onClose, editBooking, defaultDate }) {
 
 // ── BOOKING DETAIL ────────────────────────────────────────────────────────────
 function BookingDetail({ booking:b, unit, onClose, onEdit, onDelete, onStatusChange, onPaymentUpdate }) {
-  const [deleting,setDeleting]=useState(false); const [updatingStatus,setUpdatingStatus]=useState(false);
+  const [deleting,setDeleting]=useState(false);
+  const [updatingStatus,setUpdatingStatus]=useState(false);
   const src = SRC[b.source]||SRC.direct;
   const st  = ST[b.status]||ST.confirmed;
   const ps  = PS[b.payment_status]||PS.pending;
-  const nights = b.nights||calcNights(b.checkin_date,b.checkout_date);
-  const due = (Number(b.total_amount||0)-Number(b.paid_amount||0)).toFixed(0);
+  const nights = b.nights || calcNights(b.checkin_date, b.checkin_date===b.checkout_date ? addDays(b.checkout_date,1) : b.checkout_date);
+  const due = Math.max(0, Number(b.total_amount||0) - Number(b.paid_amount||0));
+  const showPayment = PAYMENT_CHECKBOX_SOURCES.includes(b.source);
 
   const handleDelete=async()=>{ setDeleting(true); await onDelete(b.id); setDeleting(false); };
-  const setStatus=async(status)=>{
-    setUpdatingStatus(true);
-    await onStatusChange(b.id,status);
-    setUpdatingStatus(false);
-  };
+  const setStatus=async(status)=>{ setUpdatingStatus(true); await onStatusChange(b.id,status); setUpdatingStatus(false); };
 
   return (
       <>
-        <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:"16px"}}>
+        {/* Header */}
+        <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:"14px"}}>
           <div>
             <div style={{color:"rgba(110,86,207,0.7)",fontSize:"9px",fontFamily:"'DM Mono', monospace",letterSpacing:"0.15em",textTransform:"uppercase",marginBottom:"4px"}}>{unit?.name}</div>
-            <div style={{display:"flex",gap:"6px",flexWrap:"wrap",marginBottom:"6px"}}>
+            <div style={{display:"flex",gap:"5px",flexWrap:"wrap",marginBottom:"6px"}}>
               <Pill label={src.label} color={src.color}/>
               <Pill label={st.label} color={st.color}/>
-              <Pill label={ps.label} color={ps.color}/>
-              {(b.nights||1)>1&&<Pill label={`${nights}N`} color="#94A3B8"/>}
+              {showPayment && <Pill label={ps.label} color={ps.color}/>}
+              {nights>1&&<Pill label={`${nights}N`} color="#94A3B8"/>}
+              {b.checkin_date===b.checkout_date&&<Pill label={isHalfDay(b)?"½ Day":"Full Day"} color={isHalfDay(b)?"#F59E0B":"#34D399"}/>}
             </div>
             <div style={{color:"#F0EEF8",fontSize:"18px",fontFamily:"'Playfair Display', serif",fontWeight:700}}>{b.guest_name}</div>
+            {b.guest_phone&&<div style={{color:"rgba(255,255,255,0.4)",fontSize:"11px",fontFamily:"'DM Mono', monospace",marginTop:"2px"}}>📞 {b.guest_phone}</div>}
             <div style={{color:"rgba(255,255,255,0.35)",fontSize:"11px",fontFamily:"'DM Mono', monospace",marginTop:"2px"}}>
               {b.checkin_date}{b.checkout_date!==b.checkin_date?` → ${b.checkout_date}`:""}
             </div>
@@ -554,10 +558,11 @@ function BookingDetail({ booking:b, unit, onClose, onEdit, onDelete, onStatusCha
 
         {/* Status workflow */}
         <div style={{marginBottom:"14px"}}>
-          <div style={{color:"rgba(255,255,255,0.3)",fontSize:"9px",fontFamily:"'DM Mono', monospace",letterSpacing:"0.1em",marginBottom:"6px"}}>STATUS</div>
+          <div style={{color:"rgba(255,255,255,0.3)",fontSize:"9px",fontFamily:"'DM Mono', monospace",letterSpacing:"0.1em",marginBottom:"6px"}}>BOOKING STATUS</div>
           <div style={{display:"flex",gap:"4px",flexWrap:"wrap"}}>
             {STATUSES.map(s=>(
-                <button key={s.id} onClick={()=>setStatus(s.id)} disabled={updatingStatus||b.status===s.id} style={{padding:"4px 10px",borderRadius:"6px",border:`1px solid ${b.status===s.id?s.color:"rgba(255,255,255,0.08)"}`,background:b.status===s.id?`${s.color}22`:"transparent",color:b.status===s.id?s.color:"rgba(255,255,255,0.35)",fontFamily:"'DM Mono', monospace",fontSize:"9px",cursor:b.status===s.id?"default":"pointer",fontWeight:b.status===s.id?700:400,transition:"all 0.15s"}}>
+                <button key={s.id} onClick={()=>setStatus(s.id)} disabled={updatingStatus||b.status===s.id}
+                        style={{padding:"4px 10px",borderRadius:"6px",border:`1px solid ${b.status===s.id?s.color:"rgba(255,255,255,0.08)"}`,background:b.status===s.id?`${s.color}22`:"transparent",color:b.status===s.id?s.color:"rgba(255,255,255,0.35)",fontFamily:"'DM Mono', monospace",fontSize:"9px",cursor:b.status===s.id?"default":"pointer",fontWeight:b.status===s.id?700:400}}>
                   {s.label}
                 </button>
             ))}
@@ -566,7 +571,10 @@ function BookingDetail({ booking:b, unit, onClose, onEdit, onDelete, onStatusCha
 
         {/* Dates & times */}
         <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:"8px",marginBottom:"12px"}}>
-          {[{l:"Check-In",v:`${b.checkin_date} ${b.check_in_time||"14:00"}`,i:"⬆"},{l:"Check-Out",v:`${b.checkout_date} ${b.check_out_time||"11:00"}`,i:"⬇"}].map(item=>(
+          {[
+            {l:"Check-In",  v:`${b.checkin_date}  ${b.check_in_time||"11:00"}`,  i:"⬆"},
+            {l:"Check-Out", v:`${b.checkout_date} ${b.check_out_time||"19:00"}`, i:"⬇"},
+          ].map(item=>(
               <div key={item.l} style={{background:"rgba(255,255,255,0.04)",borderRadius:"8px",padding:"10px 12px",border:"1px solid rgba(255,255,255,0.07)"}}>
                 <div style={{color:"rgba(255,255,255,0.3)",fontSize:"9px",fontFamily:"'DM Mono', monospace",marginBottom:"3px"}}>{item.i} {item.l.toUpperCase()}</div>
                 <div style={{color:"#F0EEF8",fontSize:"11px",fontFamily:"'DM Mono', monospace",fontWeight:600}}>{item.v}</div>
@@ -574,32 +582,18 @@ function BookingDetail({ booking:b, unit, onClose, onEdit, onDelete, onStatusCha
           ))}
         </div>
 
-        {/* Guest details */}
-        {(b.guest_phone||b.guest_email||b.guest_id_type||b.num_guests>1)&&(
-            <div style={{...card,marginBottom:"12px"}}>
-              <div style={{color:"rgba(255,255,255,0.3)",fontSize:"9px",fontFamily:"'DM Mono', monospace",letterSpacing:"0.1em",marginBottom:"8px"}}>GUEST DETAILS</div>
-              <div style={{display:"grid",gap:"5px"}}>
-                {b.guest_phone&&<div style={{color:"rgba(255,255,255,0.6)",fontSize:"11px",fontFamily:"'DM Mono', monospace"}}>📞 {b.guest_phone}</div>}
-                {b.guest_email&&<div style={{color:"rgba(255,255,255,0.6)",fontSize:"11px",fontFamily:"'DM Mono', monospace"}}>✉ {b.guest_email}</div>}
-                {b.guest_id_type&&<div style={{color:"rgba(255,255,255,0.6)",fontSize:"11px",fontFamily:"'DM Mono', monospace"}}>🪪 {b.guest_id_type.toUpperCase()}: {b.guest_id_number||"—"}</div>}
-                {b.num_guests>1&&<div style={{color:"rgba(255,255,255,0.6)",fontSize:"11px",fontFamily:"'DM Mono', monospace"}}>👥 {b.num_guests} guests</div>}
-              </div>
-            </div>
-        )}
-
         {/* Financials */}
         <div style={{background:"linear-gradient(135deg,rgba(110,86,207,0.1),rgba(155,127,232,0.06))",borderRadius:"10px",padding:"12px 14px",border:"1px solid rgba(110,86,207,0.2)",marginBottom:"12px"}}>
-          <div style={{color:"rgba(255,255,255,0.3)",fontSize:"9px",fontFamily:"'DM Mono', monospace",letterSpacing:"0.1em",marginBottom:"8px"}}>FINANCIALS · {nights} NIGHT{nights>1?"S":""}</div>
+          <div style={{color:"rgba(255,255,255,0.3)",fontSize:"9px",fontFamily:"'DM Mono', monospace",letterSpacing:"0.1em",marginBottom:"8px"}}>AMOUNT · {nights} NIGHT{nights>1?"S":""}</div>
           <div style={{display:"grid",gap:"5px"}}>
             {[
-              ["Total",inrFmt(b.total_amount),"#F0EEF8"],
-              ["Paid",inrFmt(b.paid_amount),"#34D399"],
-              ...(parseFloat(due)>0?[["Due",inrFmt(due),"#F59E0B"]]:[]),
-              ...(b.platform_commission_pct>0?[
-                [`${src.label} fee (${b.platform_commission_pct}%)`,`-${inrFmt(b.platform_commission_amt)}`,"#FF7B7F"],
-                ["Net Revenue",inrFmt(b.net_revenue||b.total_amount-b.platform_commission_amt),"#C4B5FD"],
-              ]:[]),
-              ...(b.security_deposit>0?[["Security Deposit",inrFmt(b.security_deposit),b.deposit_returned?"#34D399":"#F59E0B"]]:[]),
+              ["Total", inrFmt(b.total_amount), "#F0EEF8"],
+              ...(showPayment ? [
+                ["Paid", inrFmt(b.paid_amount), "#34D399"],
+                ...(due > 0 ? [["Due", inrFmt(due), "#F59E0B"]] : []),
+              ] : [
+                ["Via " + (b.source==="airbnb"?"Airbnb":"MMT/GoIbibo"), "Direct to account", "rgba(255,255,255,0.35)"],
+              ]),
             ].map(([k,v,c])=>(
                 <div key={k} style={{display:"flex",justifyContent:"space-between"}}>
                   <span style={{color:"rgba(255,255,255,0.4)",fontSize:"11px",fontFamily:"'DM Mono', monospace"}}>{k}</span>
@@ -607,26 +601,30 @@ function BookingDetail({ booking:b, unit, onClose, onEdit, onDelete, onStatusCha
                 </div>
             ))}
           </div>
-          {b.payment_method&&<div style={{marginTop:"8px",color:"rgba(255,255,255,0.3)",fontSize:"10px",fontFamily:"'DM Mono', monospace"}}>via {b.payment_method.replace("_"," ").toUpperCase()}</div>}
 
-          {/* Quick payment update */}
-          <div style={{marginTop:"10px",paddingTop:"10px",borderTop:"1px solid rgba(255,255,255,0.06)"}}>
-            <div style={{color:"rgba(255,255,255,0.25)",fontSize:"9px",fontFamily:"'DM Mono', monospace",marginBottom:"5px"}}>QUICK UPDATE</div>
-            <div style={{display:"flex",gap:"4px",flexWrap:"wrap"}}>
-              {PAY_STATUSES.map(s=>(
-                  <button key={s.id} onClick={()=>onPaymentUpdate(b.id,s.id)} style={{padding:"3px 8px",borderRadius:"5px",border:`1px solid ${b.payment_status===s.id?s.color:"rgba(255,255,255,0.06)"}`,background:b.payment_status===s.id?`${s.color}22`:"transparent",color:b.payment_status===s.id?s.color:"rgba(255,255,255,0.3)",fontFamily:"'DM Mono', monospace",fontSize:"9px",cursor:"pointer"}}>
-                    {s.label}
-                  </button>
-              ))}
-            </div>
-          </div>
+          {/* Quick payment toggle for Direct/Ekant/Urmit */}
+          {showPayment && (
+              <div style={{marginTop:"10px",paddingTop:"10px",borderTop:"1px solid rgba(255,255,255,0.06)"}}>
+                <div style={{display:"flex",gap:"4px"}}>
+                  {PAY_STATUSES.filter(s=>["paid","pending"].includes(s.id)).map(s=>(
+                      <button key={s.id} onClick={()=>onPaymentUpdate(b.id,s.id)}
+                              style={{flex:1,padding:"5px 8px",borderRadius:"6px",border:`1px solid ${b.payment_status===s.id?s.color:"rgba(255,255,255,0.06)"}`,background:b.payment_status===s.id?`${s.color}22`:"transparent",color:b.payment_status===s.id?s.color:"rgba(255,255,255,0.3)",fontFamily:"'DM Mono', monospace",fontSize:"10px",cursor:"pointer",fontWeight:b.payment_status===s.id?700:400}}>
+                        {s.id==="paid"?"✓ Paid":"⏳ Pending"}
+                      </button>
+                  ))}
+                </div>
+                {b.source!=="direct"&&<div style={{color:"rgba(255,255,255,0.25)",fontSize:"9px",fontFamily:"'DM Mono', monospace",marginTop:"5px"}}>
+                  {b.source==="ekant"?"Ekant":"Urmit"} — settle at month end via UPI
+                </div>}
+              </div>
+          )}
         </div>
 
-        {(b.notes||b.special_requests||b.overflow_to)&&(
-            <div style={{...card,marginBottom:"12px"}}>
-              {b.overflow_to&&<div style={{color:"#A78BFA",fontSize:"11px",fontFamily:"'DM Mono', monospace",marginBottom:"5px"}}>↗ Passed to {b.overflow_to}</div>}
-              {b.special_requests&&<div style={{marginBottom:"5px"}}><div style={{color:"rgba(255,255,255,0.3)",fontSize:"9px",fontFamily:"'DM Mono', monospace",marginBottom:"2px"}}>GUEST REQUESTS</div><div style={{color:"rgba(255,255,255,0.6)",fontSize:"11px",fontFamily:"'DM Mono', monospace",lineHeight:1.6}}>{b.special_requests}</div></div>}
-              {b.notes&&<div><div style={{color:"rgba(255,255,255,0.3)",fontSize:"9px",fontFamily:"'DM Mono', monospace",marginBottom:"2px"}}>NOTES</div><div style={{color:"rgba(255,255,255,0.5)",fontSize:"11px",fontFamily:"'DM Mono', monospace",lineHeight:1.6}}>{b.notes}</div></div>}
+        {/* Overflow */}
+        {b.overflow_to&&(
+            <div style={{background:"rgba(167,139,250,0.08)",borderRadius:"8px",padding:"8px 14px",border:"1px solid rgba(167,139,250,0.2)",marginBottom:"12px",display:"flex",alignItems:"center",gap:"6px"}}>
+              <span>👤</span>
+              <span style={{color:"#C4B5FD",fontSize:"11px",fontFamily:"'DM Mono', monospace"}}>↗ Passed to {b.overflow_to}</span>
             </div>
         )}
 
@@ -675,13 +673,13 @@ function Dashboard({ units, user }) {
     const bySrc={}, byStatus={};
     SOURCES.forEach(s=>{bySrc[s.id]={count:0,revenue:0,nights:0};});
     STATUSES.forEach(s=>{byStatus[s.id]=0;});
-    let totalRev=0, netRev=0, totalNights=0, totalDue=0;
+    let totalRev=0, totalNights=0, totalDue=0;
     const byDate={};
     data.filter(b=>b.status!=="cancelled").forEach(b=>{
       bySrc[b.source]=bySrc[b.source]||{count:0,revenue:0,nights:0};
       bySrc[b.source].count++; bySrc[b.source].revenue+=Number(b.total_amount||0); bySrc[b.source].nights+=Number(b.nights||1);
       byStatus[b.status]=(byStatus[b.status]||0)+1;
-      totalRev+=Number(b.total_amount||0); netRev+=Number(b.net_revenue||b.total_amount||0);
+      totalRev+=Number(b.total_amount||0);
       totalNights+=Number(b.nights||1); totalDue+=Math.max(0,Number(b.total_amount||0)-Number(b.paid_amount||0));
       // Mark all dates in booking range for occupancy calc
       const ci=new Date(b.checkin_date);
@@ -694,7 +692,7 @@ function Dashboard({ units, user }) {
     const occupiedDays=Object.values(byDate).reduce((s,bks)=>s+getDayOccupancy(bks),0);
     const occupancyPct=dim>0?Math.round((occupiedDays/dim)*100):0;
     const cancelled=data.filter(b=>b.status==="cancelled").length;
-    return {bySrc,byStatus,totalRev,netRev,totalNights,totalDue,occupiedDays,occupancyPct,cancelled,total:data.filter(b=>b.status!=="cancelled").length};
+    return {bySrc,byStatus,totalRev,totalNights,totalDue,occupiedDays,occupancyPct,cancelled,total:data.filter(b=>b.status!=="cancelled").length};
   },[data,dim,mStr]);
 
   // Daily revenue for chart
@@ -740,9 +738,9 @@ function Dashboard({ units, user }) {
           <div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:"8px",marginBottom:"16px"}}>
             {[
               {l:"Total Revenue",   v:inrFmt(stats.totalRev),       a:"#86EFAC"},
-              {l:"Net Revenue",     v:inrFmt(stats.netRev),         a:"#C4B5FD"},
               {l:"Occupancy",       v:`${stats.occupancyPct}%`,     a:"#6EE7B7"},
               {l:"Amount Due",      v:inrFmt(stats.totalDue),       a:stats.totalDue>0?"#F59E0B":"#34D399"},
+              {l:"Bookings",        v:stats.total,                  a:"#C4B5FD"},
             ].map(s=>(
                 <div key={s.l} style={card}>
                   <div style={{color:"rgba(255,255,255,0.3)",fontSize:"8px",letterSpacing:"0.1em",textTransform:"uppercase",marginBottom:"3px"}}>{s.l}</div>
@@ -777,8 +775,6 @@ function Dashboard({ units, user }) {
                       <div style={{color:src.color,fontSize:"10px",fontFamily:"'DM Mono', monospace",fontWeight:600,marginBottom:"5px"}}>{src.label}</div>
                       <div style={{color:"#F0EEF8",fontSize:"18px",fontFamily:"'Playfair Display', serif",fontWeight:700}}>{s.count}</div>
                       <div style={{color:"rgba(255,255,255,0.3)",fontSize:"9px",fontFamily:"'DM Mono', monospace"}}>{inrFmt(s.revenue)}</div>
-                      {src.commission>0&&<div style={{color:"#FF7B7F",fontSize:"8px",fontFamily:"'DM Mono', monospace",marginTop:"2px"}}>-{inrFmt(s.revenue*src.commission/100)} fee</div>}
-                      <div style={{marginTop:"6px",height:"3px",background:"rgba(255,255,255,0.06)",borderRadius:"2px"}}><div style={{width:`${pct}%`,height:"100%",background:src.color,borderRadius:"2px"}}/></div>
                     </div>
                 );
               })}
@@ -823,7 +819,7 @@ function Dashboard({ units, user }) {
                 ?<div style={{color:"rgba(255,255,255,0.2)",fontFamily:"'DM Mono', monospace",fontSize:"12px",textAlign:"center",padding:"20px"}}>No bookings this month</div>
                 :<div style={{overflowX:"auto"}}>
                   <table style={{width:"100%",borderCollapse:"collapse",fontFamily:"'DM Mono', monospace",fontSize:"10px"}}>
-                    <thead><tr>{["Date","Unit","Guest","Nights","Source","Status","Payment","Total","Net"].map(h=>(
+                    <thead><tr>{["Date","Unit","Guest","Nights","Source","Status","Payment","Total"].map(h=>(
                         <th key={h} style={{textAlign:"left",color:"rgba(255,255,255,0.3)",padding:"5px 8px",borderBottom:"1px solid rgba(255,255,255,0.06)",whiteSpace:"nowrap",letterSpacing:"0.06em"}}>{h}</th>
                     ))}</tr></thead>
                     <tbody>
@@ -839,7 +835,6 @@ function Dashboard({ units, user }) {
                         <td style={{padding:"6px 8px"}}><span style={{background:`${st.color}22`,color:st.color,borderRadius:"4px",padding:"1px 5px",fontSize:"9px"}}>{st.label}</span></td>
                         <td style={{padding:"6px 8px"}}><span style={{background:`${ps.color}22`,color:ps.color,borderRadius:"4px",padding:"1px 5px",fontSize:"9px"}}>{ps.label}</span></td>
                         <td style={{padding:"6px 8px",color:"#C4B5FD",fontWeight:600,whiteSpace:"nowrap"}}>{inrFmt(b.total_amount)}</td>
-                        <td style={{padding:"6px 8px",color:"#86EFAC",whiteSpace:"nowrap"}}>{inrFmt(b.net_revenue||b.total_amount)}</td>
                       </tr>;
                     })}
                     </tbody>
