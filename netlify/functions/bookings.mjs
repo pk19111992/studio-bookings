@@ -140,6 +140,50 @@ export default async function handler(req) {
       }
     }
 
+    // ── GET custom sources for a unit ───────────────────────────────────────
+    if (action === "sources" && method === "GET") {
+      const srcUnitId = url.searchParams.get("unit_id");
+      if (!srcUnitId) return new Response(JSON.stringify({ error:"unit_id required" }), { status:400, headers:CORS });
+      const visible = await getVisibleUnitIds(user);
+      if (!visible.includes(srcUnitId)) return new Response(JSON.stringify({ error:"Forbidden" }), { status:403, headers:CORS });
+      const sources = await sb("custom_sources", `unit_id=eq.${srcUnitId}&order=created_at.asc`);
+      return new Response(JSON.stringify(sources), { headers:CORS });
+    }
+
+    // ── POST add custom source ──────────────────────────────────────────────
+    if (action === "sources" && method === "POST") {
+      const body = await req.json();
+      const srcUnitId = body.unit_id;
+      const label = (body.label||"").trim();
+      if (!srcUnitId || !label) return new Response(JSON.stringify({ error:"unit_id and label required" }), { status:400, headers:CORS });
+      const visible = await getVisibleUnitIds(user);
+      if (!visible.includes(srcUnitId)) return new Response(JSON.stringify({ error:"Forbidden" }), { status:403, headers:CORS });
+      const sourceKey = label.toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^_+|_+$/g, "");
+      if (!sourceKey) return new Response(JSON.stringify({ error:"Invalid label" }), { status:400, headers:CORS });
+      try {
+        await sbPost("custom_sources", {
+          id: crypto.randomUUID(), unit_id: srcUnitId, source_key: sourceKey,
+          label, color: body.color || "#94A3B8", icon: body.icon || "👤",
+          created_by: user.email,
+        }, "return=minimal");
+      } catch(e) {
+        if (e.message.includes("unique") || e.message.includes("duplicate")) {
+          return new Response(JSON.stringify({ error:"A source with this name already exists for this unit" }), { status:409, headers:CORS });
+        }
+        throw e;
+      }
+      const sources = await sb("custom_sources", `unit_id=eq.${srcUnitId}&order=created_at.asc`);
+      return new Response(JSON.stringify(sources), { headers:CORS });
+    }
+
+    // ── DELETE custom source ─────────────────────────────────────────────────
+    if (action === "sources" && method === "DELETE") {
+      const id = url.searchParams.get("id");
+      if (!id) return new Response(JSON.stringify({ error:"id required" }), { status:400, headers:CORS });
+      await sbDel("custom_sources", `id=eq.${id}`);
+      return new Response(JSON.stringify({ ok:true }), { headers:CORS });
+    }
+
     // ── GET bookings ──────────────────────────────────────────────────────
     if (action === "bookings" && method === "GET") {
       const unitId = url.searchParams.get("unit_id");

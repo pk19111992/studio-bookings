@@ -3,15 +3,20 @@ import { useState, useEffect, useCallback, useMemo } from "react";
 // ── Constants ─────────────────────────────────────────────────────────────────
 const MONTHS = ["January","February","March","April","May","June","July","August","September","October","November","December"];
 const DAYS   = ["Sun","Mon","Tue","Wed","Thu","Fri","Sat"];
-const SOURCES = [
+// Universal sources — available to every unit
+const BASE_SOURCES = [
     { id:"direct",  label:"Direct",      icon:"🤝", color:"#60A5FA" },
     { id:"airbnb",  label:"Airbnb",      icon:"✈",  color:"#FF385C" },
     { id:"goibibo", label:"GoIbibo/MMT", icon:"🏨", color:"#F59E0B" },
-    { id:"ekant",   label:"Ekant",       icon:"👤", color:"#A78BFA" },
-    { id:"urmit",   label:"Urmit",       icon:"👤", color:"#34D399" },
 ];
-const SRC = Object.fromEntries(SOURCES.map(s=>[s.id,s]));
-const CAPPED = ["direct","airbnb","goibibo","urmit"];
+// Built-in cap rule: these source ids count toward the "2 booking/day" cap
+const ALWAYS_CAPPED = ["direct","airbnb","goibibo"];
+
+// Combine base + unit's custom sources into one lookup list
+function combineSources(customSources) {
+    const custom = (customSources||[]).map(c => ({ id:c.source_key, label:c.label, icon:c.icon||"👤", color:c.color||"#94A3B8", custom:true, dbId:c.id }));
+    return [...BASE_SOURCES, ...custom];
+}
 
 const STATUSES = [
     { id:"enquiry",    label:"Enquiry",     color:"#94A3B8" },
@@ -30,8 +35,6 @@ const PAY_STATUSES = [
 ];
 const PS = Object.fromEntries(PAY_STATUSES.map(s=>[s.id,s]));
 
-// Sources where payment checkbox applies (not Airbnb/MMT — they pay direct to account)
-const PAYMENT_CHECKBOX_SOURCES = ["direct","ekant","urmit"];
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 function fmtDate(y,m,d)  { return `${y}-${String(m+1).padStart(2,"0")}-${String(d).padStart(2,"0")}`; }
@@ -42,14 +45,21 @@ function addDays(dateStr,n) { const d=new Date(dateStr); d.setDate(d.getDate()+n
 function calcNights(ci,co)  { const n=Math.round((new Date(co)-new Date(ci))/86400000); return Math.max(n,1); }
 function inrFmt(n)       { return `₹${Number(n||0).toLocaleString("en-IN")}`; }
 
-function isHalfDay(b) {
-    return ["ekant","urmit","direct"].includes(b.source) && Number(b.total_amount||b.amount_per_night||0) <= 1500 && (b.nights||1) === 1;
+function isHalfDay(b, sources) {
+    const sourceList = sources || BASE_SOURCES;
+    const isCustom = !ALWAYS_CAPPED.includes(b.source);
+    // Half-day pricing rule applies to: direct + any custom source (ekant/urmit/etc), same-day, <=1500
+    if (b.source === "direct" || isCustom) {
+        return Number(b.total_amount||b.amount_per_night||0) <= 1500 && (b.nights||1) === 1 && b.checkin_date === b.checkout_date;
+    }
+    return false;
 }
-function getDayOccupancy(dayBks) {
-    const capped = dayBks.filter(b=>CAPPED.includes(b.source));
-    const ekant  = dayBks.filter(b=>b.source==="ekant");
+function getDayOccupancy(dayBks, customSourceKeys) {
+    const customKeys = customSourceKeys || [];
+    const capped = dayBks.filter(b => ALWAYS_CAPPED.includes(b.source));
+    const customBookings = dayBks.filter(b => customKeys.includes(b.source));
     let occ = Math.min(capped.reduce((s,b)=>s+(isHalfDay(b)?0.5:1),0),1);
-    occ += ekant.reduce((s,b)=>s+(isHalfDay(b)?0.5:1),0);
+    occ += customBookings.reduce((s,b)=>s+(isHalfDay(b)?0.5:1),0);
     return Math.min(occ,1);
 }
 
@@ -84,6 +94,9 @@ const API = {
     getPerms:      (uid)     => apiFetch(`/bookings?action=permissions&unit_id=${encodeURIComponent(uid)}`),
     grantPerm:     (u,us)    => apiFetch("/bookings?action=permissions",{method:"POST",body:JSON.stringify({unit_id:u,user_id:us})}),
     revokePerm:    (u,us)    => apiFetch(`/bookings?action=permissions&unit_id=${encodeURIComponent(u)}&user_id=${us}`,{method:"DELETE"}),
+    getSources:    (uid)     => apiFetch(`/bookings?action=sources&unit_id=${encodeURIComponent(uid)}`),
+    addSource:     (uid,label,color,icon) => apiFetch("/bookings?action=sources",{method:"POST",body:JSON.stringify({unit_id:uid,label,color,icon})}),
+    deleteSource:  (id)      => apiFetch(`/bookings?action=sources&id=${id}`,{method:"DELETE"}),
 };
 
 // ── Shared styles ─────────────────────────────────────────────────────────────
@@ -284,9 +297,12 @@ function ProfileModal({ user, onClose, onUpdate }) {
 }
 
 // ── BOOKING FORM ──────────────────────────────────────────────────────────────
-// ── BOOKING FORM ──────────────────────────────────────────────────────────────
-function BookingForm({ unit, onSave, onClose, editBooking, defaultDate }) {
+function BookingForm({ unit, onSave, onClose, editBooking, defaultDate, sources, onAddSource }) {
     const today = new Date().toISOString().slice(0,10);
+    const [showAddSrc, setShowAddSrc] = useState(false);
+    const [newSrcLabel, setNewSrcLabel] = useState("");
+    const [addingSrc, setAddingSrc] = useState(false);
+    const [srcErr, setSrcErr] = useState("");
 
     const getDefaults = () => {
         if (editBooking) return {
@@ -329,9 +345,10 @@ function BookingForm({ unit, onSave, onClose, editBooking, defaultDate }) {
 
     const isSameDay  = f.checkin_date === f.checkout_date;
     const nights     = isSameDay ? 1 : calcNights(f.checkin_date, f.checkout_date);
-    const showPayment = PAYMENT_CHECKBOX_SOURCES.includes(f.source);
+    const isCustomSrc = !ALWAYS_CAPPED.includes(f.source);
+    const showPayment = f.source === "direct" || isCustomSrc; // Airbnb/GoIbibo excluded — paid direct to account
     const isPaid     = f.payment_status === "paid";
-    const halfDay    = isSameDay && ["ekant","urmit","direct"].includes(f.source) && parseFloat(f.total_amount||0) <= 1500;
+    const halfDay    = isSameDay && (f.source === "direct" || isCustomSrc) && parseFloat(f.total_amount||0) <= 1500;
 
     const handleSave = async () => {
         if (!f.guest_name.trim()) { setErr("Guest name is required."); return; }
@@ -425,14 +442,34 @@ function BookingForm({ unit, onSave, onClose, editBooking, defaultDate }) {
                 {/* Source */}
                 <div>
                     <label style={lbl}>Booking Source</label>
-                    <div style={{display:"grid",gridTemplateColumns:"repeat(5,1fr)",gap:"5px"}}>
-                        {SOURCES.map(s=>(
+                    <div style={{display:"grid",gridTemplateColumns:`repeat(${Math.min(sources.length+1,6)},1fr)`,gap:"5px"}}>
+                        {sources.map(s=>(
                             <button key={s.id} onClick={()=>set("source",s.id)} style={{padding:"8px 4px",borderRadius:"8px",border:`1px solid ${f.source===s.id?s.color:"rgba(255,255,255,0.08)"}`,background:f.source===s.id?`${s.color}22`:"rgba(255,255,255,0.02)",color:f.source===s.id?s.color:"rgba(255,255,255,0.35)",fontFamily:"'DM Mono', monospace",fontSize:"9px",cursor:"pointer",display:"flex",flexDirection:"column",alignItems:"center",gap:"3px",transition:"all 0.15s"}}>
                                 <span style={{fontSize:"14px"}}>{s.icon}</span>
                                 <span style={{textAlign:"center",lineHeight:1.1}}>{s.label}</span>
                             </button>
                         ))}
+                        <button onClick={()=>setShowAddSrc(true)} style={{padding:"8px 4px",borderRadius:"8px",border:"1px dashed rgba(255,255,255,0.15)",background:"transparent",color:"rgba(255,255,255,0.3)",fontFamily:"'DM Mono', monospace",fontSize:"9px",cursor:"pointer",display:"flex",flexDirection:"column",alignItems:"center",gap:"3px",transition:"all 0.15s"}}
+                                onMouseEnter={e=>{e.currentTarget.style.borderColor="rgba(110,86,207,0.5)";e.currentTarget.style.color="#C4B5FD";}}
+                                onMouseLeave={e=>{e.currentTarget.style.borderColor="rgba(255,255,255,0.15)";e.currentTarget.style.color="rgba(255,255,255,0.3)";}}>
+                            <span style={{fontSize:"14px"}}>+</span>
+                            <span>Add New</span>
+                        </button>
                     </div>
+
+                    {/* Inline add custom source */}
+                    {showAddSrc && (
+                        <div style={{marginTop:"8px",padding:"10px",background:"rgba(110,86,207,0.06)",border:"1px solid rgba(110,86,207,0.2)",borderRadius:"8px"}}>
+                            <div style={{display:"flex",gap:"6px"}}>
+                                <input autoFocus style={{...inp,flex:1}} value={newSrcLabel} onChange={e=>setNewSrcLabel(e.target.value)} placeholder="e.g. Rajesh, Booking.com…" onFocus={fi} onBlur={fb}
+                                       onKeyDown={async e=>{ if(e.key==="Enter"){ if(!newSrcLabel.trim())return; setAddingSrc(true); setSrcErr(""); try{ const newId=await onAddSource(newSrcLabel.trim()); set("source",newId); setNewSrcLabel(""); setShowAddSrc(false);}catch(err){setSrcErr(err.message);} setAddingSrc(false);} }}/>
+                                <button onClick={async()=>{ if(!newSrcLabel.trim())return; setAddingSrc(true); setSrcErr(""); try{ const newId=await onAddSource(newSrcLabel.trim()); set("source",newId); setNewSrcLabel(""); setShowAddSrc(false);}catch(err){setSrcErr(err.message);} setAddingSrc(false); }} disabled={addingSrc||!newSrcLabel.trim()} style={{padding:"8px 14px",borderRadius:"6px",border:"none",background:"linear-gradient(135deg,#6E56CF,#9B7FE8)",color:"#fff",cursor:"pointer",fontFamily:"'DM Mono', monospace",fontSize:"10px",fontWeight:700,opacity:addingSrc||!newSrcLabel.trim()?0.5:1}}>{addingSrc?"…":"Add"}</button>
+                                <button onClick={()=>{setShowAddSrc(false);setNewSrcLabel("");setSrcErr("");}} style={{padding:"8px 10px",borderRadius:"6px",border:"none",background:"rgba(255,255,255,0.06)",color:"rgba(255,255,255,0.4)",cursor:"pointer",fontSize:"13px"}}>×</button>
+                            </div>
+                            {srcErr && <div style={{color:"#FF7B7F",fontSize:"10px",marginTop:"6px",fontFamily:"'DM Mono', monospace"}}>⚠ {srcErr}</div>}
+                            <div style={{color:"rgba(255,255,255,0.3)",fontSize:"9px",marginTop:"6px",fontFamily:"'DM Mono', monospace"}}>This source will only be available for {unit.name}</div>
+                        </div>
+                    )}
                 </div>
 
                 {/* Guest */}
@@ -457,7 +494,7 @@ function BookingForm({ unit, onSave, onClose, editBooking, defaultDate }) {
                 </div>
 
                 {/* Half/full indicator */}
-                {parseFloat(f.total_amount)>0 && isSameDay && ["ekant","urmit","direct"].includes(f.source) && (
+                {parseFloat(f.total_amount)>0 && isSameDay && (f.source==="direct" || isCustomSrc) && (
                     <div style={{display:"flex",alignItems:"center",gap:"6px"}}>
             <span style={{background:halfDay?"rgba(251,191,36,0.15)":"rgba(52,211,153,0.15)",color:halfDay?"#FBbf24":"#34D399",borderRadius:"4px",padding:"3px 10px",fontSize:"10px",fontFamily:"'DM Mono', monospace"}}>
               {halfDay?"½ Half Day (≤₹1500)":"Full Day (>₹1500)"}
@@ -476,7 +513,7 @@ function BookingForm({ unit, onSave, onClose, editBooking, defaultDate }) {
                                 {isPaid?"✓ Payment Received":"⏳ Payment Pending"}
                             </div>
                             <div style={{color:"rgba(255,255,255,0.3)",fontSize:"9px",fontFamily:"'DM Mono', monospace",marginTop:"2px"}}>
-                                {f.source==="direct"?"via UPI":`${f.source==="ekant"?"Ekant":"Urmit"} — settle at month end via UPI`}
+                                {f.source==="direct" ? "via UPI" : `${sources.find(s=>s.id===f.source)?.label||"Custom"} — settle at month end via UPI`}
                             </div>
                         </label>
                     </div>
@@ -521,15 +558,15 @@ function BookingForm({ unit, onSave, onClose, editBooking, defaultDate }) {
 }
 
 // ── BOOKING DETAIL ────────────────────────────────────────────────────────────
-function BookingDetail({ booking:b, unit, onClose, onEdit, onDelete, onStatusChange, onPaymentUpdate }) {
+function BookingDetail({ booking:b, unit, sources, onClose, onEdit, onDelete, onStatusChange, onPaymentUpdate }) {
     const [deleting,setDeleting]=useState(false);
     const [updatingStatus,setUpdatingStatus]=useState(false);
-    const src = SRC[b.source]||SRC.direct;
+    const src = sources.find(s=>s.id===b.source) || { label:b.source, icon:"❓", color:"#94A3B8" };
     const st  = ST[b.status]||ST.confirmed;
     const ps  = PS[b.payment_status]||PS.pending;
     const nights = b.nights || calcNights(b.checkin_date, b.checkin_date===b.checkout_date ? addDays(b.checkout_date,1) : b.checkout_date);
     const due = Math.max(0, Number(b.total_amount||0) - Number(b.paid_amount||0));
-    const showPayment = PAYMENT_CHECKBOX_SOURCES.includes(b.source);
+    const showPayment = b.source === "direct" || !ALWAYS_CAPPED.includes(b.source);
 
     const handleDelete=async()=>{ setDeleting(true); await onDelete(b.id); setDeleting(false); };
     const setStatus=async(status)=>{ setUpdatingStatus(true); await onStatusChange(b.id,status); setUpdatingStatus(false); };
@@ -614,7 +651,7 @@ function BookingDetail({ booking:b, unit, onClose, onEdit, onDelete, onStatusCha
                             ))}
                         </div>
                         {b.source!=="direct"&&<div style={{color:"rgba(255,255,255,0.25)",fontSize:"9px",fontFamily:"'DM Mono', monospace",marginTop:"5px"}}>
-                            {b.source==="ekant"?"Ekant":"Urmit"} — settle at month end via UPI
+                            {src.label} — settle at month end via UPI
                         </div>}
                     </div>
                 )}
@@ -637,8 +674,8 @@ function BookingDetail({ booking:b, unit, onClose, onEdit, onDelete, onStatusCha
 }
 
 // ── BOOKING BADGE on calendar ─────────────────────────────────────────────────
-function BookingBadge({ booking:b, onClick }) {
-    const src=SRC[b.source]||SRC.direct;
+function BookingBadge({ booking:b, sources, onClick }) {
+    const src = sources.find(s=>s.id===b.source) || { label:b.source, icon:"❓", color:"#94A3B8" };
     const st=ST[b.status]||ST.confirmed;
     const ps=PS[b.payment_status]||PS.pending;
     const half=isHalfDay(b); const multi=(b.nights||1)>1;
@@ -660,6 +697,7 @@ function Dashboard({ units, user }) {
     const today=new Date();
     const [sel,setSel]=useState("all"); const [year,setYear]=useState(today.getFullYear()); const [month,setMonth]=useState(today.getMonth());
     const [data,setData]=useState([]); const [loading,setLoading]=useState(false);
+    const [allSources,setAllSources]=useState([]); // merged sources across all selected units
     const mStr=`${year}-${String(month+1).padStart(2,"0")}`;
     const dim=new Date(year,month+1,0).getDate();
 
@@ -669,9 +707,20 @@ function Dashboard({ units, user }) {
         p.then(r=>{setData(r||[]);setLoading(false);}).catch(()=>setLoading(false));
     },[sel,mStr]);
 
+    // Load sources for relevant unit(s) so labels/colors/icons resolve correctly
+    useEffect(()=>{
+        const unitIds = sel==="all" ? units.map(u=>u.id) : [sel];
+        Promise.all(unitIds.map(id=>API.getSources(id).catch(()=>[])))
+            .then(results=>{
+                const merged = {};
+                results.flat().forEach(c=>{ merged[c.source_key]={ id:c.source_key, label:c.label, icon:c.icon||"👤", color:c.color||"#94A3B8" }; });
+                setAllSources(combineSources(Object.values(merged).map(c=>({source_key:c.id,label:c.label,icon:c.icon,color:c.color}))));
+            });
+    },[sel,units]);
+
     const stats=useMemo(()=>{
         const bySrc={}, byStatus={};
-        SOURCES.forEach(s=>{bySrc[s.id]={count:0,revenue:0,nights:0};});
+        allSources.forEach(s=>{bySrc[s.id]={count:0,revenue:0,nights:0};});
         STATUSES.forEach(s=>{byStatus[s.id]=0;});
         let totalRev=0, totalNights=0, totalDue=0;
         const byDate={};
@@ -693,7 +742,7 @@ function Dashboard({ units, user }) {
         const occupancyPct=dim>0?Math.round((occupiedDays/dim)*100):0;
         const cancelled=data.filter(b=>b.status==="cancelled").length;
         return {bySrc,byStatus,totalRev,totalNights,totalDue,occupiedDays,occupancyPct,cancelled,total:data.filter(b=>b.status!=="cancelled").length};
-    },[data,dim,mStr]);
+    },[data,dim,mStr,allSources]);
 
     // Daily revenue for chart
     const daily=useMemo(()=>{
@@ -765,8 +814,8 @@ function Dashboard({ units, user }) {
                 {/* Source breakdown */}
                 <div style={{...card,marginBottom:"16px"}}>
                     <div style={{color:"rgba(255,255,255,0.4)",fontSize:"9px",letterSpacing:"0.1em",textTransform:"uppercase",marginBottom:"12px",fontFamily:"'DM Mono', monospace"}}>Bookings by Source</div>
-                    <div style={{display:"grid",gridTemplateColumns:"repeat(5,1fr)",gap:"6px"}}>
-                        {SOURCES.map(src=>{
+                    <div style={{display:"grid",gridTemplateColumns:`repeat(${Math.min(allSources.length||1,6)},1fr)`,gap:"6px"}}>
+                        {allSources.map(src=>{
                             const s=stats.bySrc[src.id]||{count:0,revenue:0,nights:0};
                             const pct=stats.total>0?Math.round(s.count/stats.total*100):0;
                             return (
@@ -824,7 +873,7 @@ function Dashboard({ units, user }) {
                                 ))}</tr></thead>
                                 <tbody>
                                 {[...data].sort((a,b)=>a.checkin_date.localeCompare(b.checkin_date)).map(b=>{
-                                    const src=SRC[b.source]||SRC.direct; const st=ST[b.status]||ST.confirmed; const ps=PS[b.payment_status]||PS.pending;
+                                    const src=allSources.find(s=>s.id===b.source)||{label:b.source,icon:"❓",color:"#94A3B8"}; const st=ST[b.status]||ST.confirmed; const ps=PS[b.payment_status]||PS.pending;
                                     return <tr key={b.id} style={{borderBottom:"1px solid rgba(255,255,255,0.03)",opacity:b.status==="cancelled"?0.5:1}}
                                                onMouseEnter={e=>e.currentTarget.style.background="rgba(255,255,255,0.02)"} onMouseLeave={e=>e.currentTarget.style.background="transparent"}>
                                         <td style={{padding:"6px 8px",color:"rgba(255,255,255,0.5)",whiteSpace:"nowrap"}}>{b.checkin_date}</td>
@@ -1071,16 +1120,58 @@ function StatusBadge({ status }) {
 }
 
 // ── MAIN APP ──────────────────────────────────────────────────────────────────
+// ── ADD UNIT FORM ─────────────────────────────────────────────────────────────
+function AddUnitForm({ onAdd, onClose }) {
+    const [n, setN] = useState("");
+    const [l, setL] = useState("");
+    const [s, setS] = useState(false);
+    const [err, setErr] = useState("");
+
+    const handleAdd = async () => {
+        if (!n.trim()) { setErr("Unit name is required."); return; }
+        setErr(""); setS(true);
+        try { await onAdd(n.trim(), l.trim()); }
+        catch(e) { setErr(e.message); setS(false); }
+    };
+
+    return (
+        <>
+            <SectionHeader title="Add New Unit" onClose={onClose}/>
+            <div style={{ display:"grid", gap:"12px" }}>
+                <div>
+                    <label style={lbl}>Unit Name</label>
+                    <input style={inp} value={n} onChange={e=>setN(e.target.value)} placeholder="e.g. Unit 1627" onFocus={fi} onBlur={fb} onKeyDown={e=>e.key==="Enter"&&handleAdd()}/>
+                </div>
+                <div>
+                    <label style={lbl}>Location</label>
+                    <input style={inp} value={l} onChange={e=>setL(e.target.value)} placeholder="e.g. Gaur City Center, Greater Noida" onFocus={fi} onBlur={fb} onKeyDown={e=>e.key==="Enter"&&handleAdd()}/>
+                </div>
+                {err && <div style={{ color:"#FF7B7F", fontSize:"11px", padding:"8px 12px", background:"rgba(255,90,95,0.1)", borderRadius:"6px", border:"1px solid rgba(255,90,95,0.2)" }}>⚠ {err}</div>}
+                <div style={{ display:"flex", gap:"8px" }}>
+                    <button onClick={onClose} style={{ flex:1, padding:"9px", borderRadius:"8px", border:"1px solid rgba(255,255,255,0.1)", background:"transparent", color:"rgba(255,255,255,0.4)", cursor:"pointer", fontFamily:"'DM Mono', monospace", fontSize:"11px" }}>Cancel</button>
+                    <button onClick={handleAdd} disabled={s || !n.trim()} style={{ flex:2, padding:"9px", borderRadius:"8px", border:"none", background:"linear-gradient(135deg,#6E56CF,#9B7FE8)", color:"#fff", cursor:"pointer", fontWeight:700, fontFamily:"'DM Mono', monospace", fontSize:"11px", opacity:(s||!n.trim())?0.5:1 }}>
+                        {s ? "Adding…" : "Add Unit"}
+                    </button>
+                </div>
+            </div>
+        </>
+    );
+}
+
 export default function App() {
     const today=new Date();
     const [user,setUser]=useState(null); const [authChecked,setAuthChecked]=useState(false);
     const [units,setUnits]=useState([]); const [selUnit,setSelUnit]=useState(null);
+    const [customSources,setCustomSources]=useState([]); // raw rows from DB for selUnit
     const [bookings,setBookings]=useState({}); // keyed by checkin_date
     const [year,setYear]=useState(today.getFullYear()); const [month,setMonth]=useState(today.getMonth());
     const [status,setStatus]=useState("loading"); const [dbErr,setDbErr]=useState("");
     const [modal,setModal]=useState(null); // {type, ...}
     const [activeTab,setActiveTab]=useState("calendar");
     const [showProfile,setShowProfile]=useState(false);
+
+    // Combined sources for the currently selected unit (base + custom)
+    const sources = useMemo(() => combineSources(customSources), [customSources]);
 
     useEffect(()=>{
         const t=getToken();
@@ -1092,6 +1183,20 @@ export default function App() {
         if(!user) return;
         API.units().then(list=>{setUnits(list||[]);if(list?.length)setSelUnit(list[0]);setStatus("saved");}).catch(e=>{setStatus("error");setDbErr(e.message);});
     },[user]);
+
+    // Load this unit's custom sources whenever selected unit changes
+    useEffect(()=>{
+        if(!selUnit) { setCustomSources([]); return; }
+        API.getSources(selUnit.id).then(setCustomSources).catch(()=>setCustomSources([]));
+    },[selUnit]);
+
+    const handleAddSource = async (label) => {
+        if(!selUnit) throw new Error("No unit selected");
+        const list = await API.addSource(selUnit.id, label);
+        setCustomSources(list);
+        const created = list.find(c => c.label.toLowerCase() === label.toLowerCase());
+        return created ? created.source_key : label.toLowerCase().replace(/[^a-z0-9]+/g,"_");
+    };
 
     useEffect(()=>{
         if(!selUnit) return;
@@ -1113,6 +1218,7 @@ export default function App() {
             setBookings(map); setStatus("saved"); setDbErr("");
         }).catch(e=>{setStatus("error");setDbErr(e.message);});
     },[selUnit]);
+
 
     const firstDay=new Date(year,month,1).getDay();
     const dim=new Date(year,month+1,0).getDate();
@@ -1301,7 +1407,7 @@ export default function App() {
 
                     {/* Source pills */}
                     <div style={{display:"flex",gap:"6px",marginBottom:"14px",flexWrap:"wrap"}}>
-                        {SOURCES.map(src=>{
+                        {sources.map(src=>{
                             const c=mBks.filter(b=>b.source===src.id).length;
                             return <div key={src.id} style={{background:`${src.color}0d`,border:`1px solid ${src.color}33`,borderRadius:"6px",padding:"3px 9px",display:"flex",alignItems:"center",gap:"4px"}}>
                                 <span style={{fontSize:"10px"}}>{src.icon}</span>
@@ -1330,7 +1436,7 @@ export default function App() {
                             const dayBks=getDay(dateStr);
                             const activeBks=dayBks.filter(b=>b.status!=="cancelled");
                             const isToday=dateStr===todayStr;
-                            const cappedCount=activeBks.filter(b=>CAPPED.includes(b.source)).length;
+                            const cappedCount=activeBks.filter(b=>ALWAYS_CAPPED.includes(b.source)).length;
                             const isWE=(firstDay+day-1)%7===0||(firstDay+day-1)%7===6;
                             const occ=getDayOccupancy(activeBks);
                             const occDot=occ>=1?"#FF5A5F":occ>=0.5?"#F59E0B":null;
@@ -1340,7 +1446,7 @@ export default function App() {
                                      onMouseEnter={e=>e.currentTarget.style.background=isToday?"rgba(110,86,207,0.11)":"rgba(255,255,255,0.03)"}
                                      onMouseLeave={e=>e.currentTarget.style.background=isToday?"rgba(110,86,207,0.07)":activeBks.length>0?"rgba(255,255,255,0.01)":"transparent"}>
                                     <div style={{width:"20px",height:"20px",borderRadius:"50%",display:"flex",alignItems:"center",justifyContent:"center",background:isToday?"linear-gradient(135deg,#6E56CF,#9B7FE8)":"transparent",color:isToday?"#fff":isWE?"rgba(155,127,232,0.6)":"rgba(255,255,255,0.4)",fontSize:"10px",fontWeight:isToday?700:400,marginBottom:"3px",boxShadow:isToday?"0 2px 8px rgba(110,86,207,0.5)":"none"}}>{day}</div>
-                                    {dayBks.map(b=><BookingBadge key={b.id} booking={b} onClick={bk=>setModal({type:"detail",booking:bk})}/>)}
+                                    {dayBks.map(b=><BookingBadge key={b.id} booking={b} sources={sources} onClick={bk=>setModal({type:"detail",booking:bk})}/>)}
                                     {occDot&&<div style={{position:"absolute",top:"4px",right:"4px",width:"5px",height:"5px",borderRadius:"50%",background:occDot,boxShadow:`0 0 4px ${occDot}`}} title={`${Math.round(occ*100)}% occupied`}/>}
                                     {pendingPay&&<div style={{position:"absolute",bottom:"4px",right:"4px",fontSize:"8px",opacity:0.8}} title="Payment pending">💰</div>}
                                     {!dayBks.length&&<div style={{color:"rgba(255,255,255,0.07)",fontSize:"14px",textAlign:"center",marginTop:"4px"}}>+</div>}
@@ -1351,7 +1457,7 @@ export default function App() {
 
                     {/* Legend */}
                     <div style={{display:"flex",gap:"10px",marginTop:"12px",flexWrap:"wrap",justifyContent:"center"}}>
-                        {SOURCES.map(s=><div key={s.id} style={{display:"flex",alignItems:"center",gap:"4px",color:"rgba(255,255,255,0.3)",fontSize:"8px"}}><div style={{width:"10px",height:"6px",borderRadius:"2px",background:s.color}}/>{s.icon} {s.label}</div>)}
+                        {sources.map(s=><div key={s.id} style={{display:"flex",alignItems:"center",gap:"4px",color:"rgba(255,255,255,0.3)",fontSize:"8px"}}><div style={{width:"10px",height:"6px",borderRadius:"2px",background:s.color}}/>{s.icon} {s.label}</div>)}
                         <div style={{display:"flex",alignItems:"center",gap:"4px",color:"rgba(255,255,255,0.3)",fontSize:"8px"}}><div style={{width:"5px",height:"5px",borderRadius:"50%",background:"#FF5A5F"}}/>Full</div>
                         <div style={{display:"flex",alignItems:"center",gap:"4px",color:"rgba(255,255,255,0.3)",fontSize:"8px"}}><div style={{width:"5px",height:"5px",borderRadius:"50%",background:"#F59E0B"}}/>Half</div>
                         <div style={{display:"flex",alignItems:"center",gap:"4px",color:"rgba(255,255,255,0.3)",fontSize:"8px"}}><span>💰</span>Payment pending</div>
@@ -1364,31 +1470,16 @@ export default function App() {
                 <ProfileModal user={user} onClose={()=>setShowProfile(false)} onUpdate={u=>{setUser(u);setShowProfile(false);}}/>
             </Modal>
             <Modal isOpen={modal?.type==="addUnit"} onClose={()=>setModal(null)}>
-                {modal?.type==="addUnit"&&(
-                    <>
-                        <SectionHeader title="Add New Unit" onClose={()=>setModal(null)}/>
-                        {(()=>{
-                            const [n,setN]=useState(""); const [l,setL]=useState(""); const [s,setS]=useState(false);
-                            return <div style={{display:"grid",gap:"12px"}}>
-                                <div><label style={lbl}>Unit Name</label><input style={inp} value={n} onChange={e=>setN(e.target.value)} placeholder="e.g. Unit 1627" onFocus={fi} onBlur={fb}/></div>
-                                <div><label style={lbl}>Location</label><input style={inp} value={l} onChange={e=>setL(e.target.value)} placeholder="e.g. Gaur City Center, Greater Noida" onFocus={fi} onBlur={fb}/></div>
-                                <div style={{display:"flex",gap:"8px"}}>
-                                    <button onClick={()=>setModal(null)} style={{flex:1,padding:"9px",borderRadius:"8px",border:"1px solid rgba(255,255,255,0.1)",background:"transparent",color:"rgba(255,255,255,0.4)",cursor:"pointer",fontFamily:"'DM Mono', monospace",fontSize:"11px"}}>Cancel</button>
-                                    <button onClick={async()=>{if(!n.trim()) return;setS(true);await handleAddUnit(n.trim(),l.trim());setS(false);}} disabled={s||!n.trim()} style={{flex:2,padding:"9px",borderRadius:"8px",border:"none",background:"linear-gradient(135deg,#6E56CF,#9B7FE8)",color:"#fff",cursor:"pointer",fontWeight:700,fontFamily:"'DM Mono', monospace",fontSize:"11px",opacity:s||!n.trim()?0.5:1}}>{s?"Adding…":"Add Unit"}</button>
-                                </div>
-                            </div>;
-                        })()}
-                    </>
-                )}
+                {modal?.type==="addUnit"&&<AddUnitForm onAdd={handleAddUnit} onClose={()=>setModal(null)}/>}
             </Modal>
             <Modal isOpen={modal?.type==="add"} onClose={()=>setModal(null)} wide>
-                {modal?.type==="add"&&selUnit&&<BookingForm unit={selUnit} onSave={handleSave} onClose={()=>setModal(null)} defaultDate={modal.date}/>}
+                {modal?.type==="add"&&selUnit&&<BookingForm unit={selUnit} sources={sources} onAddSource={handleAddSource} onSave={handleSave} onClose={()=>setModal(null)} defaultDate={modal.date}/>}
             </Modal>
             <Modal isOpen={modal?.type==="detail"} onClose={()=>setModal(null)}>
-                {modal?.type==="detail"&&<BookingDetail booking={modal.booking} unit={selUnit} onClose={()=>setModal(null)} onEdit={b=>setModal({type:"edit",booking:b})} onDelete={handleDelete} onStatusChange={handleStatusChange} onPaymentUpdate={handlePaymentUpdate}/>}
+                {modal?.type==="detail"&&<BookingDetail booking={modal.booking} unit={selUnit} sources={sources} onClose={()=>setModal(null)} onEdit={b=>setModal({type:"edit",booking:b})} onDelete={handleDelete} onStatusChange={handleStatusChange} onPaymentUpdate={handlePaymentUpdate}/>}
             </Modal>
             <Modal isOpen={modal?.type==="edit"} onClose={()=>setModal(null)} wide>
-                {modal?.type==="edit"&&selUnit&&<BookingForm unit={selUnit} onSave={handleSave} onClose={()=>setModal(null)} editBooking={modal.booking}/>}
+                {modal?.type==="edit"&&selUnit&&<BookingForm unit={selUnit} sources={sources} onAddSource={handleAddSource} onSave={handleSave} onClose={()=>setModal(null)} editBooking={modal.booking}/>}
             </Modal>
         </div>
     );
