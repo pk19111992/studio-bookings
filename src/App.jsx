@@ -1073,6 +1073,146 @@ function IcalSyncPanel({ units, selUnit }) {
     );
 }
 
+// ── MANAGE SOURCES PANEL ──────────────────────────────────────────────────────
+function ManageSourcesPanel({ units, selUnit, onSelectUnit, customSources, setCustomSources }) {
+    const [name, setName]         = useState("");
+    const [color, setColor]       = useState("#94A3B8");
+    const [icon, setIcon]         = useState("👤");
+    const [adding, setAdding]     = useState(false);
+    const [msg, setMsg]           = useState({ text:"", type:"" });
+    const [deletingId, setDeletingId] = useState(null);
+
+    const COLOR_OPTIONS = ["#94A3B8","#A78BFA","#34D399","#60A5FA","#F59E0B","#FF385C","#EC4899","#22D3EE"];
+    const ICON_OPTIONS  = ["👤","🏠","🏨","📞","💼","🔑","🌟","📦"];
+
+    const showMsg = (text, type="ok") => { setMsg({ text, type }); setTimeout(() => setMsg({ text:"", type:"" }), 3000); };
+
+    const handleAdd = async () => {
+        if (!name.trim()) return showMsg("Enter a name for the booking type", "err");
+        if (!selUnit) return showMsg("Select a unit first", "err");
+        setAdding(true);
+        try {
+            const list = await API.addSource(selUnit.id, name.trim(), color, icon);
+            setCustomSources(list || []);
+            setName(""); setColor("#94A3B8"); setIcon("👤");
+            showMsg(`✓ "${name.trim()}" added for ${selUnit.name}`);
+        } catch(e) {
+            showMsg(e.message.includes("{") ? JSON.parse(e.message).error : e.message, "err");
+        }
+        setAdding(false);
+    };
+
+    const handleDelete = async (id, label) => {
+        setDeletingId(id);
+        try {
+            await API.deleteSource(id);
+            setCustomSources(prev => prev.filter(c => c.id !== id));
+            showMsg(`Removed "${label}"`);
+        } catch(e) { showMsg(e.message, "err"); }
+        setDeletingId(null);
+    };
+
+    return (
+        <div style={{ padding:"16px 0" }}>
+            <div style={{ color:"rgba(255,255,255,0.3)", fontSize:"9px", fontFamily:"'DM Mono', monospace", letterSpacing:"0.15em", textTransform:"uppercase", marginBottom:"4px" }}>
+                Manage Booking Types
+            </div>
+            <div style={{ color:"rgba(255,255,255,0.35)", fontSize:"10px", fontFamily:"'DM Mono', monospace", marginBottom:"16px", lineHeight:1.6 }}>
+                Direct, Airbnb, and GoIbibo/MMT are available on every unit. Add custom booking types (like agents, brokers, or recurring contacts) that are specific to one unit.
+            </div>
+
+            {/* Unit selector */}
+            <div style={{ display:"flex", gap:"6px", flexWrap:"wrap", marginBottom:"18px" }}>
+                {units.map(u => (
+                    <button key={u.id} onClick={() => onSelectUnit(u)} style={{ padding:"5px 14px", borderRadius:"20px", border:`1px solid ${selUnit?.id===u.id ? "rgba(110,86,207,0.7)" : "rgba(255,255,255,0.1)"}`, background:selUnit?.id===u.id ? "rgba(110,86,207,0.2)" : "transparent", color:selUnit?.id===u.id ? "#C4B5FD" : "rgba(255,255,255,0.4)", fontFamily:"'DM Mono', monospace", fontSize:"11px", cursor:"pointer" }}>
+                        {u.name}
+                    </button>
+                ))}
+            </div>
+
+            {msg.text && (
+                <div style={{ color: msg.type==="err" ? "#FF7B7F" : "#74C69D", fontSize:"11px", marginBottom:"14px", padding:"8px 12px", background: msg.type==="err" ? "rgba(255,90,95,0.1)" : "rgba(39,201,63,0.08)", borderRadius:"6px", border:`1px solid ${msg.type==="err" ? "rgba(255,90,95,0.2)" : "rgba(39,201,63,0.2)"}` }}>
+                    {msg.text}
+                </div>
+            )}
+
+            {/* Add new source form */}
+            <div style={{ ...card, marginBottom:"18px" }}>
+                <div style={{ color:"rgba(255,255,255,0.6)", fontSize:"12px", fontFamily:"'DM Mono', monospace", fontWeight:600, marginBottom:"12px" }}>
+                    + Add New Booking Type for {selUnit?.name || "—"}
+                </div>
+                <div style={{ display:"grid", gap:"12px" }}>
+                    <div>
+                        <label style={lbl}>Name</label>
+                        <input style={inp} value={name} onChange={e => setName(e.target.value)} placeholder="e.g. Rajesh, Booking.com, Office Booking…" onFocus={fi} onBlur={fb} onKeyDown={e => e.key==="Enter" && handleAdd()}/>
+                    </div>
+                    <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:"12px" }}>
+                        <div>
+                            <label style={lbl}>Color</label>
+                            <div style={{ display:"flex", gap:"6px", flexWrap:"wrap" }}>
+                                {COLOR_OPTIONS.map(c => (
+                                    <button key={c} onClick={() => setColor(c)} style={{ width:"26px", height:"26px", borderRadius:"50%", background:c, border:color===c ? "2px solid #fff" : "2px solid transparent", cursor:"pointer", boxShadow:color===c ? `0 0 0 2px ${c}` : "none" }}/>
+                                ))}
+                            </div>
+                        </div>
+                        <div>
+                            <label style={lbl}>Icon</label>
+                            <div style={{ display:"flex", gap:"6px", flexWrap:"wrap" }}>
+                                {ICON_OPTIONS.map(ic => (
+                                    <button key={ic} onClick={() => setIcon(ic)} style={{ width:"26px", height:"26px", borderRadius:"6px", background:icon===ic ? "rgba(110,86,207,0.3)" : "rgba(255,255,255,0.04)", border:icon===ic ? "1px solid rgba(110,86,207,0.7)" : "1px solid rgba(255,255,255,0.08)", cursor:"pointer", fontSize:"13px", display:"flex", alignItems:"center", justifyContent:"center" }}>
+                                        {ic}
+                                    </button>
+                                ))}
+                            </div>
+                        </div>
+                    </div>
+
+                    {/* Live preview */}
+                    {name.trim() && (
+                        <div style={{ display:"flex", alignItems:"center", gap:"8px" }}>
+                            <span style={{ color:"rgba(255,255,255,0.3)", fontSize:"9px", fontFamily:"'DM Mono', monospace", letterSpacing:"0.08em" }}>PREVIEW:</span>
+                            <span style={{ background:`${color}22`, border:`1px solid ${color}55`, borderRadius:"6px", padding:"4px 10px", color, fontFamily:"'DM Mono', monospace", fontSize:"11px", fontWeight:600, display:"inline-flex", alignItems:"center", gap:"5px" }}>
+                <span>{icon}</span>{name.trim()}
+              </span>
+                        </div>
+                    )}
+
+                    <button onClick={handleAdd} disabled={adding || !name.trim() || !selUnit} style={{ padding:"10px", borderRadius:"8px", border:"none", background:"linear-gradient(135deg,#6E56CF,#9B7FE8)", color:"#fff", cursor:"pointer", fontWeight:700, fontFamily:"'DM Mono', monospace", fontSize:"12px", opacity:(adding||!name.trim()||!selUnit) ? 0.5 : 1 }}>
+                        {adding ? "Adding…" : "Add Booking Type"}
+                    </button>
+                </div>
+            </div>
+
+            {/* Existing custom sources list */}
+            <div style={card}>
+                <div style={{ color:"rgba(255,255,255,0.4)", fontSize:"9px", letterSpacing:"0.1em", textTransform:"uppercase", marginBottom:"12px", fontFamily:"'DM Mono', monospace" }}>
+                    Custom Types for {selUnit?.name || "—"}
+                </div>
+                {customSources.length === 0 ? (
+                    <div style={{ color:"rgba(255,255,255,0.2)", fontFamily:"'DM Mono', monospace", fontSize:"12px", textAlign:"center", padding:"16px" }}>
+                        No custom booking types yet for this unit. Add one above.
+                    </div>
+                ) : (
+                    <div style={{ display:"grid", gap:"6px" }}>
+                        {customSources.map(c => (
+                            <div key={c.id} style={{ display:"flex", alignItems:"center", gap:"10px", padding:"8px 12px", background:"rgba(255,255,255,0.02)", borderRadius:"8px", border:`1px solid ${c.color||"#94A3B8"}33` }}>
+                                <span style={{ fontSize:"16px" }}>{c.icon||"👤"}</span>
+                                <div style={{ flex:1 }}>
+                                    <div style={{ color: c.color||"#94A3B8", fontSize:"12px", fontFamily:"'DM Mono', monospace", fontWeight:600 }}>{c.label}</div>
+                                    <div style={{ color:"rgba(255,255,255,0.25)", fontSize:"9px", fontFamily:"'DM Mono', monospace" }}>key: {c.source_key}</div>
+                                </div>
+                                <button onClick={() => handleDelete(c.id, c.label)} disabled={deletingId===c.id} style={{ padding:"5px 10px", borderRadius:"6px", border:"1px solid rgba(255,90,95,0.3)", background:"rgba(255,90,95,0.08)", color:"#FF7B7F", cursor:"pointer", fontFamily:"'DM Mono', monospace", fontSize:"10px" }}>
+                                    {deletingId===c.id ? "…" : "Remove"}
+                                </button>
+                            </div>
+                        ))}
+                    </div>
+                )}
+            </div>
+        </div>
+    );
+}
+
 function AdminPanel({ units }) {
     const [users,setUsers]=useState([]); const [selUnit,setSelUnit]=useState(units[0]?.id||"");
     const [perms,setPerms]=useState([]); const [loading,setLoading]=useState(false); const [msg,setMsg]=useState("");
@@ -1339,6 +1479,7 @@ export default function App() {
                     {tabBtn("calendar","Calendar","📅")}
                     {tabBtn("dashboard","Reports","📊")}
                     {tabBtn("sync","Sync","🔄")}
+                    {tabBtn("sources","Types","🏷")}
                     {user.role==="admin"&&tabBtn("admin","Admin","⚙")}
                 </div>
                 <div style={{display:"flex",alignItems:"center",gap:"8px"}}>
@@ -1374,6 +1515,7 @@ export default function App() {
 
                 {activeTab==="dashboard"&&<Dashboard units={units} user={user}/>}
                 {activeTab==="sync"&&<IcalSyncPanel units={units} selUnit={selUnit}/>}
+                {activeTab==="sources"&&<ManageSourcesPanel units={units} selUnit={selUnit} onSelectUnit={u=>{setSelUnit(u);}} customSources={customSources} setCustomSources={setCustomSources}/>}
                 {activeTab==="admin"&&user.role==="admin"&&<AdminPanel units={units}/>}
 
                 {activeTab==="calendar"&&<>
