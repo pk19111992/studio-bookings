@@ -545,7 +545,7 @@ function BookingForm({ unit, onSave, onClose, editBooking, defaultDate, sources,
                 )}
 
                 {/* Status + Overflow */}
-                <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:"10px"}}>
+                <div style={{display:"none",gridTemplateColumns:"1fr 1fr",gap:"10px"}}>
                     <div><label style={lbl}>Booking Status</label>
                         <select style={inp} value={f.status} onChange={e=>set("status",e.target.value)}>
                             {STATUSES.map(s=><option key={s.id} value={s.id} style={{background:"#1a1a2e"}}>{s.label}</option>)}
