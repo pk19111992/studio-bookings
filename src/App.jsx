@@ -347,7 +347,6 @@ function BookingForm({ unit, onSave, onClose, editBooking, defaultDate, sources,
     const nights     = isSameDay ? 1 : calcNights(f.checkin_date, f.checkout_date);
     const isCustomSrc = !ALWAYS_CAPPED.includes(f.source);
     const showPayment = f.source === "direct" || isCustomSrc; // Airbnb/GoIbibo excluded — paid direct to account
-    const isPaid     = f.payment_status === "paid";
     const halfDay    = isSameDay && (f.source === "direct" || isCustomSrc) && parseFloat(f.total_amount||0) <= 1500;
 
     const handleSave = async () => {
@@ -502,20 +501,37 @@ function BookingForm({ unit, onSave, onClose, editBooking, defaultDate, sources,
                     </div>
                 )}
 
-                {/* Payment checkbox — Direct / Ekant / Urmit only */}
+                {/* Payment — Direct / Custom sources only */}
                 {showPayment && (
-                    <div style={{background:"rgba(255,255,255,0.03)",border:"1px solid rgba(255,255,255,0.07)",borderRadius:"8px",padding:"12px 14px",display:"flex",alignItems:"center",gap:"12px"}}>
-                        <input type="checkbox" id="paid-cb" checked={isPaid}
-                               onChange={e=>{set("payment_status",e.target.checked?"paid":"pending"); if(e.target.checked) set("paid_amount",f.total_amount); else set("paid_amount","");}}
-                               style={{width:"18px",height:"18px",accentColor:"#34D399",cursor:"pointer",flexShrink:0}}/>
-                        <label htmlFor="paid-cb" style={{cursor:"pointer"}}>
-                            <div style={{color:isPaid?"#34D399":"#F59E0B",fontSize:"12px",fontFamily:"'DM Mono', monospace",fontWeight:600}}>
-                                {isPaid?"✓ Payment Received":"⏳ Payment Pending"}
+                    <div style={{background:"rgba(255,255,255,0.03)",border:"1px solid rgba(255,255,255,0.07)",borderRadius:"8px",padding:"12px 14px"}}>
+                        <label style={{...lbl,marginBottom:"8px"}}>Payment</label>
+                        <div style={{display:"flex",gap:"5px",marginBottom:"8px"}}>
+                            {[{id:"pending",label:"⏳ Pending",c:"#F59E0B"},{id:"partial",label:"💵 Partial",c:"#60A5FA"},{id:"paid",label:"✓ Paid",c:"#34D399"}].map(ps=>(
+                                <button key={ps.id} onClick={()=>{set("payment_status",ps.id); if(ps.id==="paid") set("paid_amount",f.total_amount); if(ps.id==="pending") set("paid_amount","");}}
+                                        style={{flex:1,padding:"6px 4px",borderRadius:"6px",border:`1px solid ${f.payment_status===ps.id?ps.c:"rgba(255,255,255,0.08)"}`,background:f.payment_status===ps.id?`${ps.c}22`:"transparent",color:f.payment_status===ps.id?ps.c:"rgba(255,255,255,0.35)",fontFamily:"'DM Mono', monospace",fontSize:"10px",cursor:"pointer",fontWeight:f.payment_status===ps.id?700:400,transition:"all 0.15s"}}>
+                                    {ps.label}
+                                </button>
+                            ))}
+                        </div>
+                        {f.payment_status==="partial" && (
+                            <div style={{animation:"fadeIn 0.15s ease"}}>
+                                <label style={lbl}>Amount Paid (₹)</label>
+                                <input style={inp} type="number" min="0" max={parseFloat(f.total_amount)||undefined}
+                                       value={f.paid_amount} onChange={e=>set("paid_amount",e.target.value)}
+                                       placeholder={`Partial amount (total: ${inrFmt(f.total_amount)})`} onFocus={fi} onBlur={fb}/>
+                                {parseFloat(f.paid_amount)>0 && parseFloat(f.total_amount)>0 && (
+                                    <div style={{display:"flex",gap:"8px",marginTop:"5px"}}>
+                                        <span style={{color:"#34D399",fontSize:"10px",fontFamily:"'DM Mono', monospace"}}>Paid: {inrFmt(f.paid_amount)}</span>
+                                        <span style={{color:"#F59E0B",fontSize:"10px",fontFamily:"'DM Mono', monospace"}}>Due: {inrFmt(Math.max(0,parseFloat(f.total_amount)-parseFloat(f.paid_amount)))}</span>
+                                    </div>
+                                )}
                             </div>
-                            <div style={{color:"rgba(255,255,255,0.3)",fontSize:"9px",fontFamily:"'DM Mono', monospace",marginTop:"2px"}}>
-                                {f.source==="direct" ? "via UPI" : `${sources.find(s=>s.id===f.source)?.label||"Custom"} — settle at month end via UPI`}
+                        )}
+                        {f.source!=="direct" && (
+                            <div style={{color:"rgba(255,255,255,0.25)",fontSize:"9px",fontFamily:"'DM Mono', monospace",marginTop:"6px"}}>
+                                {sources.find(s=>s.id===f.source)?.label||f.source} — settle at month end via UPI
                             </div>
-                        </label>
+                        )}
                     </div>
                 )}
 
@@ -554,6 +570,97 @@ function BookingForm({ unit, onSave, onClose, editBooking, defaultDate, sources,
                 </button>
             </div>
         </>
+    );
+}
+
+// ── PAYMENT CONTROLS ──────────────────────────────────────────────────────────
+function PaymentControls({ booking: b, onUpdate }) {
+    const [mode, setMode]       = useState("buttons"); // buttons | partial
+    const [partialAmt, setPartialAmt] = useState("");
+    const [saving, setSaving]   = useState(false);
+    const [err, setErr]         = useState("");
+    const src = b.source;
+    const total   = Number(b.total_amount || 0);
+    const paid    = Number(b.paid_amount  || 0);
+    const due     = Math.max(0, total - paid);
+
+    const handlePartial = async () => {
+        const amt = parseFloat(partialAmt);
+        if (!amt || isNaN(amt) || amt <= 0)   { setErr("Enter a valid amount."); return; }
+        if (amt > due)                         { setErr(`Cannot exceed due amount ${inrFmt(due)}.`); return; }
+        setErr(""); setSaving(true);
+        const newPaid   = paid + amt;
+        const newStatus = newPaid >= total ? "paid" : "partial";
+        await onUpdate(b.id, newStatus, newPaid);
+        setPartialAmt(""); setMode("buttons"); setSaving(false);
+    };
+
+    const handleFullPaid   = () => onUpdate(b.id, "paid",    total);
+    const handleMarkPending = () => onUpdate(b.id, "pending", 0);
+
+    return (
+        <div style={{borderTop:"1px solid rgba(255,255,255,0.06)",paddingTop:"10px"}}>
+            {mode === "buttons" ? (
+                <>
+                    <div style={{display:"flex",gap:"4px",marginBottom:"5px"}}>
+                        <button onClick={handleMarkPending} disabled={b.payment_status==="pending"}
+                                style={{flex:1,padding:"5px 6px",borderRadius:"6px",border:`1px solid ${b.payment_status==="pending"?"#F59E0B":"rgba(255,255,255,0.06)"}`,background:b.payment_status==="pending"?"rgba(245,158,11,0.15)":"transparent",color:b.payment_status==="pending"?"#F59E0B":"rgba(255,255,255,0.3)",fontFamily:"'DM Mono', monospace",fontSize:"9px",cursor:"pointer",fontWeight:b.payment_status==="pending"?700:400}}>
+                            ⏳ Pending
+                        </button>
+                        <button onClick={()=>setMode("partial")}
+                                style={{flex:1,padding:"5px 6px",borderRadius:"6px",border:`1px solid ${b.payment_status==="partial"?"#60A5FA":"rgba(255,255,255,0.06)"}`,background:b.payment_status==="partial"?"rgba(96,165,250,0.15)":"transparent",color:b.payment_status==="partial"?"#60A5FA":"rgba(255,255,255,0.3)",fontFamily:"'DM Mono', monospace",fontSize:"9px",cursor:"pointer",fontWeight:b.payment_status==="partial"?700:400}}>
+                            💵 Partial
+                        </button>
+                        <button onClick={handleFullPaid} disabled={b.payment_status==="paid"}
+                                style={{flex:1,padding:"5px 6px",borderRadius:"6px",border:`1px solid ${b.payment_status==="paid"?"#34D399":"rgba(255,255,255,0.06)"}`,background:b.payment_status==="paid"?"rgba(52,211,153,0.15)":"transparent",color:b.payment_status==="paid"?"#34D399":"rgba(255,255,255,0.3)",fontFamily:"'DM Mono', monospace",fontSize:"9px",cursor:"pointer",fontWeight:b.payment_status==="paid"?700:400}}>
+                            ✓ Paid
+                        </button>
+                    </div>
+                    {src !== "direct" && (
+                        <div style={{color:"rgba(255,255,255,0.2)",fontSize:"9px",fontFamily:"'DM Mono', monospace"}}>
+                            Settle at month end via UPI
+                        </div>
+                    )}
+                </>
+            ) : (
+                <div style={{animation:"fadeIn 0.15s ease"}}>
+                    <div style={{color:"rgba(255,255,255,0.4)",fontSize:"9px",fontFamily:"'DM Mono', monospace",marginBottom:"6px"}}>
+                        ADD PARTIAL PAYMENT · Due: {inrFmt(due)}
+                    </div>
+                    <div style={{display:"flex",gap:"6px"}}>
+                        <input autoFocus style={{...inp,flex:1}} type="number" min="1" max={due}
+                               value={partialAmt} onChange={e=>setPartialAmt(e.target.value)}
+                               placeholder={`Amount (max ${inrFmt(due)})`} onFocus={fi} onBlur={fb}
+                               onKeyDown={e=>{if(e.key==="Enter")handlePartial();if(e.key==="Escape")setMode("buttons");}}/>
+                        <button onClick={handlePartial} disabled={saving||!partialAmt}
+                                style={{padding:"8px 12px",borderRadius:"6px",border:"none",background:"linear-gradient(135deg,#6E56CF,#9B7FE8)",color:"#fff",cursor:"pointer",fontFamily:"'DM Mono', monospace",fontSize:"10px",fontWeight:700,opacity:saving||!partialAmt?0.5:1}}>
+                            {saving?"…":"Add"}
+                        </button>
+                        <button onClick={()=>{setMode("buttons");setPartialAmt("");setErr("");}}
+                                style={{padding:"8px 10px",borderRadius:"6px",border:"none",background:"rgba(255,255,255,0.06)",color:"rgba(255,255,255,0.4)",cursor:"pointer",fontSize:"13px"}}>×</button>
+                    </div>
+                    {err&&<div style={{color:"#FF7B7F",fontSize:"10px",marginTop:"5px",fontFamily:"'DM Mono', monospace"}}>⚠ {err}</div>}
+                    {/* Quick presets */}
+                    {due > 0 && (
+                        <div style={{display:"flex",gap:"5px",marginTop:"7px",flexWrap:"wrap"}}>
+                            {[25,50,75,100].map(pct=>{
+                                const amt = Math.round(total*pct/100);
+                                const remaining = Math.min(amt - paid, due);
+                                if (remaining <= 0) return null;
+                                return <button key={pct} onClick={()=>setPartialAmt(String(remaining))}
+                                               style={{padding:"3px 8px",borderRadius:"5px",border:"1px solid rgba(255,255,255,0.08)",background:"rgba(255,255,255,0.04)",color:"rgba(255,255,255,0.4)",fontFamily:"'DM Mono', monospace",fontSize:"9px",cursor:"pointer"}}>
+                                    {pct}% · {inrFmt(remaining)}
+                                </button>;
+                            })}
+                            <button onClick={()=>setPartialAmt(String(due))}
+                                    style={{padding:"3px 8px",borderRadius:"5px",border:"1px solid rgba(52,211,153,0.3)",background:"rgba(52,211,153,0.08)",color:"#34D399",fontFamily:"'DM Mono', monospace",fontSize:"9px",cursor:"pointer"}}>
+                                Full due · {inrFmt(due)}
+                            </button>
+                        </div>
+                    )}
+                </div>
+            )}
+        </div>
     );
 }
 
@@ -622,7 +729,7 @@ function BookingDetail({ booking:b, unit, sources, onClose, onEdit, onDelete, on
             {/* Financials */}
             <div style={{background:"linear-gradient(135deg,rgba(110,86,207,0.1),rgba(155,127,232,0.06))",borderRadius:"10px",padding:"12px 14px",border:"1px solid rgba(110,86,207,0.2)",marginBottom:"12px"}}>
                 <div style={{color:"rgba(255,255,255,0.3)",fontSize:"9px",fontFamily:"'DM Mono', monospace",letterSpacing:"0.1em",marginBottom:"8px"}}>AMOUNT · {nights} NIGHT{nights>1?"S":""}</div>
-                <div style={{display:"grid",gap:"5px"}}>
+                <div style={{display:"grid",gap:"5px",marginBottom:"10px"}}>
                     {[
                         ["Total", inrFmt(b.total_amount), "#F0EEF8"],
                         ...(showPayment ? [
@@ -638,23 +745,10 @@ function BookingDetail({ booking:b, unit, sources, onClose, onEdit, onDelete, on
                         </div>
                     ))}
                 </div>
+                {b.payment_method&&<div style={{color:"rgba(255,255,255,0.25)",fontSize:"9px",fontFamily:"'DM Mono', monospace",marginBottom:"8px"}}>via {b.payment_method.replace("_"," ").toUpperCase()}</div>}
 
-                {/* Quick payment toggle for Direct/Ekant/Urmit */}
-                {showPayment && (
-                    <div style={{marginTop:"10px",paddingTop:"10px",borderTop:"1px solid rgba(255,255,255,0.06)"}}>
-                        <div style={{display:"flex",gap:"4px"}}>
-                            {PAY_STATUSES.filter(s=>["paid","pending"].includes(s.id)).map(s=>(
-                                <button key={s.id} onClick={()=>onPaymentUpdate(b.id,s.id)}
-                                        style={{flex:1,padding:"5px 8px",borderRadius:"6px",border:`1px solid ${b.payment_status===s.id?s.color:"rgba(255,255,255,0.06)"}`,background:b.payment_status===s.id?`${s.color}22`:"transparent",color:b.payment_status===s.id?s.color:"rgba(255,255,255,0.3)",fontFamily:"'DM Mono', monospace",fontSize:"10px",cursor:"pointer",fontWeight:b.payment_status===s.id?700:400}}>
-                                    {s.id==="paid"?"✓ Paid":"⏳ Pending"}
-                                </button>
-                            ))}
-                        </div>
-                        {b.source!=="direct"&&<div style={{color:"rgba(255,255,255,0.25)",fontSize:"9px",fontFamily:"'DM Mono', monospace",marginTop:"5px"}}>
-                            {src.label} — settle at month end via UPI
-                        </div>}
-                    </div>
-                )}
+                {/* Payment controls — Direct/Custom sources only */}
+                {showPayment && <PaymentControls booking={b} onUpdate={onPaymentUpdate}/>}
             </div>
 
             {/* Overflow */}
@@ -695,11 +789,17 @@ function BookingBadge({ booking:b, sources, onClick }) {
 // ── DASHBOARD ─────────────────────────────────────────────────────────────────
 function Dashboard({ units, user }) {
     const today=new Date();
-    const [sel,setSel]=useState("all"); const [year,setYear]=useState(today.getFullYear()); const [month,setMonth]=useState(today.getMonth());
-    const [data,setData]=useState([]); const [loading,setLoading]=useState(false);
-    const [allSources,setAllSources]=useState([]); // merged sources across all selected units
-    const mStr=`${year}-${String(month+1).padStart(2,"0")}`;
-    const dim=new Date(year,month+1,0).getDate();
+    const [sel,setSel]           = useState("all");
+    const [year,setYear]         = useState(today.getFullYear());
+    const [month,setMonth]       = useState(today.getMonth());
+    const [srcFilter,setSrcFilter] = useState("all"); // "all" or source id
+    const [data,setData]         = useState([]);
+    const [loading,setLoading]   = useState(false);
+    const [allSources,setAllSources] = useState([]);
+    const [downloading,setDownloading] = useState(null); // null | "excel" | "pdf"
+
+    const mStr = `${year}-${String(month+1).padStart(2,"0")}`;
+    const dim  = new Date(year,month+1,0).getDate();
 
     useEffect(()=>{
         setLoading(true);
@@ -707,52 +807,54 @@ function Dashboard({ units, user }) {
         p.then(r=>{setData(r||[]);setLoading(false);}).catch(()=>setLoading(false));
     },[sel,mStr]);
 
-    // Load sources for relevant unit(s) so labels/colors/icons resolve correctly
     useEffect(()=>{
-        const unitIds = sel==="all" ? units.map(u=>u.id) : [sel];
-        Promise.all(unitIds.map(id=>API.getSources(id).catch(()=>[])))
+        const ids=sel==="all"?units.map(u=>u.id):[sel];
+        Promise.all(ids.map(id=>API.getSources(id).catch(()=>[])))
             .then(results=>{
-                const merged = {};
-                results.flat().forEach(c=>{ merged[c.source_key]={ id:c.source_key, label:c.label, icon:c.icon||"👤", color:c.color||"#94A3B8" }; });
+                const merged={};
+                results.flat().forEach(c=>{merged[c.source_key]={id:c.source_key,label:c.label,icon:c.icon||"👤",color:c.color||"#94A3B8"};});
                 setAllSources(combineSources(Object.values(merged).map(c=>({source_key:c.id,label:c.label,icon:c.icon,color:c.color}))));
             });
     },[sel,units]);
+
+    // Filtered data by source
+    const filteredData = useMemo(()=>
+            srcFilter==="all" ? data : data.filter(b=>b.source===srcFilter)
+        ,[data,srcFilter]);
 
     const stats=useMemo(()=>{
         const bySrc={}, byStatus={};
         allSources.forEach(s=>{bySrc[s.id]={count:0,revenue:0,nights:0};});
         STATUSES.forEach(s=>{byStatus[s.id]=0;});
-        let totalRev=0, totalNights=0, totalDue=0;
+        let totalRev=0,totalNights=0,totalDue=0,totalPaid=0;
         const byDate={};
-        data.filter(b=>b.status!=="cancelled").forEach(b=>{
+        filteredData.filter(b=>b.status!=="cancelled").forEach(b=>{
             bySrc[b.source]=bySrc[b.source]||{count:0,revenue:0,nights:0};
             bySrc[b.source].count++; bySrc[b.source].revenue+=Number(b.total_amount||0); bySrc[b.source].nights+=Number(b.nights||1);
             byStatus[b.status]=(byStatus[b.status]||0)+1;
-            totalRev+=Number(b.total_amount||0);
+            totalRev+=Number(b.total_amount||0); totalPaid+=Number(b.paid_amount||0);
             totalNights+=Number(b.nights||1); totalDue+=Math.max(0,Number(b.total_amount||0)-Number(b.paid_amount||0));
-            // Mark all dates in booking range for occupancy calc
             const ci=new Date(b.checkin_date);
-            const co=b.checkin_date===b.checkout_date ? new Date(ci.getTime()+86400000) : new Date(b.checkout_date);
-            for(let d=new Date(ci); d<co; d.setDate(d.getDate()+1)){
+            const co=b.checkin_date===b.checkout_date?new Date(ci.getTime()+86400000):new Date(b.checkout_date);
+            for(let d=new Date(ci);d<co;d.setDate(d.getDate()+1)){
                 const k=d.toISOString().slice(0,10);
                 if(k.startsWith(mStr)){if(!byDate[k])byDate[k]=[];byDate[k].push(b);}
             }
         });
         const occupiedDays=Object.values(byDate).reduce((s,bks)=>s+getDayOccupancy(bks),0);
         const occupancyPct=dim>0?Math.round((occupiedDays/dim)*100):0;
-        const cancelled=data.filter(b=>b.status==="cancelled").length;
-        return {bySrc,byStatus,totalRev,totalNights,totalDue,occupiedDays,occupancyPct,cancelled,total:data.filter(b=>b.status!=="cancelled").length};
-    },[data,dim,mStr,allSources]);
+        const cancelled=filteredData.filter(b=>b.status==="cancelled").length;
+        return {bySrc,byStatus,totalRev,totalPaid,totalNights,totalDue,occupiedDays,occupancyPct,cancelled,total:filteredData.filter(b=>b.status!=="cancelled").length};
+    },[filteredData,dim,mStr,allSources]);
 
-    // Daily revenue for chart
     const daily=useMemo(()=>{
         const map={};
         for(let d=1;d<=dim;d++){const k=fmtDate(year,month,d);map[k]=0;}
-        data.filter(b=>b.status!=="cancelled").forEach(b=>{
+        filteredData.filter(b=>b.status!=="cancelled").forEach(b=>{
             const ci=new Date(b.checkin_date);
-            const isSameDay = b.checkin_date===b.checkout_date;
-            const co = isSameDay ? new Date(ci.getTime()+86400000) : new Date(b.checkout_date);
-            const nights=calcNights(b.checkin_date, isSameDay ? addDays(b.checkout_date,1) : b.checkout_date);
+            const isSame=b.checkin_date===b.checkout_date;
+            const co=isSame?new Date(ci.getTime()+86400000):new Date(b.checkout_date);
+            const nights=calcNights(b.checkin_date,isSame?addDays(b.checkout_date,1):b.checkout_date);
             const perN=nights>0?Number(b.total_amount||0)/nights:Number(b.total_amount||0);
             for(let d=new Date(ci);d<co;d.setDate(d.getDate()+1)){
                 const k=d.toISOString().slice(0,10);
@@ -760,8 +862,116 @@ function Dashboard({ units, user }) {
             }
         });
         return Object.entries(map).map(([date,rev])=>({date,rev:Math.round(rev)}));
-    },[data,year,month,dim]);
+    },[filteredData,year,month,dim]);
     const maxRev=Math.max(...daily.map(d=>d.rev),1);
+
+    // ── Download helpers ────────────────────────────────────────────────────────
+    const tableRows = [...filteredData].sort((a,b)=>a.checkin_date.localeCompare(b.checkin_date));
+
+    const downloadExcel = () => {
+        setDownloading("excel");
+        const headers = ["Date","Check-Out","Unit","Guest","Phone","Nights","Source","Status","Payment","Total (₹)","Paid (₹)","Due (₹)"];
+        const rows = tableRows.map(b=>{
+            const src=allSources.find(s=>s.id===b.source)||{label:b.source};
+            const st=ST[b.status]||{label:b.status};
+            const ps=PS[b.payment_status]||{label:b.payment_status};
+            const total=Number(b.total_amount||0), paid=Number(b.paid_amount||0);
+            return [b.checkin_date, b.checkout_date, units.find(u=>u.id===b.unit_id)?.name||b.unit_id, b.guest_name, b.guest_phone||"", b.nights||1, src.label, st.label, ps.label, total, paid, Math.max(0,total-paid)];
+        });
+        // Summary row
+        rows.push([]);
+        rows.push(["TOTAL","","","","","",stats.totalNights,"","",stats.totalRev,stats.totalPaid,stats.totalDue]);
+
+        // Build CSV (works as .csv open in Excel perfectly)
+        const csv = [headers,...rows].map(r=>r.map(v=>`"${String(v).replace(/"/g,'""')}"`).join(",")).join("\n");
+        const blob = new Blob(["\uFEFF"+csv],{type:"text/csv;charset=utf-8;"});
+        const url  = URL.createObjectURL(blob);
+        const a    = document.createElement("a");
+        a.href=url; a.download=`bookings-${MONTHS[month]}-${year}${srcFilter!=="all"?"-"+srcFilter:""}.csv`;
+        a.click(); URL.revokeObjectURL(url);
+        setDownloading(null);
+    };
+
+    const downloadPDF = () => {
+        setDownloading("pdf");
+        const unitName = sel==="all"?"All Units":units.find(u=>u.id===sel)?.name||sel;
+        const srcName  = srcFilter==="all"?"All Sources":allSources.find(s=>s.id===srcFilter)?.label||srcFilter;
+        const title    = `Booking Report — ${unitName} · ${srcName} · ${MONTHS[month]} ${year}`;
+
+        const html = `<!DOCTYPE html><html><head><meta charset="utf-8"/>
+    <title>${title}</title>
+    <style>
+      *{box-sizing:border-box;margin:0;padding:0}
+      body{font-family:Arial,sans-serif;font-size:11px;color:#1a1a2e;padding:20px}
+      h1{font-size:16px;margin-bottom:4px;color:#2d1b69}
+      .sub{color:#666;font-size:10px;margin-bottom:16px}
+      .kpis{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-bottom:16px}
+      .kpi{background:#f5f3ff;border-radius:8px;padding:10px 12px}
+      .kpi-l{font-size:9px;color:#666;text-transform:uppercase;letter-spacing:1px;margin-bottom:2px}
+      .kpi-v{font-size:18px;font-weight:700;color:#2d1b69}
+      table{width:100%;border-collapse:collapse;font-size:10px}
+      th{background:#2d1b69;color:#fff;padding:6px 8px;text-align:left;white-space:nowrap}
+      td{padding:5px 8px;border-bottom:1px solid #eee}
+      tr:nth-child(even) td{background:#faf9ff}
+      .tfoot td{background:#f5f3ff;font-weight:700;border-top:2px solid #2d1b69}
+      .badge{display:inline-block;padding:1px 6px;border-radius:4px;font-size:9px;font-weight:700}
+      @media print{body{padding:10px}}
+    </style></head><body>
+    <h1>${title}</h1>
+    <div class="sub">Generated on ${new Date().toLocaleString("en-IN")}</div>
+    <div class="kpis">
+      <div class="kpi"><div class="kpi-l">Total Revenue</div><div class="kpi-v">₹${Number(stats.totalRev).toLocaleString("en-IN")}</div></div>
+      <div class="kpi"><div class="kpi-l">Paid</div><div class="kpi-v">₹${Number(stats.totalPaid).toLocaleString("en-IN")}</div></div>
+      <div class="kpi"><div class="kpi-l">Outstanding</div><div class="kpi-v">₹${Number(stats.totalDue).toLocaleString("en-IN")}</div></div>
+      <div class="kpi"><div class="kpi-l">Bookings</div><div class="kpi-v">${stats.total}</div></div>
+      <div class="kpi"><div class="kpi-l">Total Nights</div><div class="kpi-v">${stats.totalNights}</div></div>
+      <div class="kpi"><div class="kpi-l">Occupancy</div><div class="kpi-v">${stats.occupancyPct}%</div></div>
+      <div class="kpi"><div class="kpi-l">Cancelled</div><div class="kpi-v">${stats.cancelled}</div></div>
+      <div class="kpi"><div class="kpi-l">Occupied Days</div><div class="kpi-v">${stats.occupiedDays.toFixed(1)} / ${dim}</div></div>
+    </div>
+    <table>
+      <thead><tr>
+        <th>Date</th><th>Check-Out</th><th>Unit</th><th>Guest</th><th>Phone</th>
+        <th>Nights</th><th>Source</th><th>Status</th><th>Payment</th><th>Total</th><th>Paid</th><th>Due</th>
+      </tr></thead>
+      <tbody>
+        ${tableRows.map(b=>{
+            const src=allSources.find(s=>s.id===b.source)||{label:b.source};
+            const st=ST[b.status]||{label:b.status};
+            const ps=PS[b.payment_status]||{label:b.payment_status};
+            const total=Number(b.total_amount||0),paid=Number(b.paid_amount||0),due=Math.max(0,total-paid);
+            return `<tr>
+            <td>${b.checkin_date}</td>
+            <td>${b.checkout_date}</td>
+            <td>${units.find(u=>u.id===b.unit_id)?.name||b.unit_id}</td>
+            <td>${b.guest_name}</td>
+            <td>${b.guest_phone||"—"}</td>
+            <td style="text-align:center">${b.nights||1}</td>
+            <td>${src.label}</td>
+            <td>${st.label}</td>
+            <td>${ps.label}</td>
+            <td style="text-align:right;font-weight:600">₹${total.toLocaleString("en-IN")}</td>
+            <td style="text-align:right;color:${paid>=total?"#166534":"#92400e"}">₹${paid.toLocaleString("en-IN")}</td>
+            <td style="text-align:right;color:${due>0?"#92400e":"#166534"}">₹${due.toLocaleString("en-IN")}</td>
+          </tr>`;
+        }).join("")}
+      </tbody>
+      <tfoot><tr class="tfoot">
+        <td colspan="5">TOTAL (${tableRows.length} bookings)</td>
+        <td style="text-align:center">${stats.totalNights}</td>
+        <td colspan="3"></td>
+        <td style="text-align:right">₹${Number(stats.totalRev).toLocaleString("en-IN")}</td>
+        <td style="text-align:right">₹${Number(stats.totalPaid).toLocaleString("en-IN")}</td>
+        <td style="text-align:right">₹${Number(stats.totalDue).toLocaleString("en-IN")}</td>
+      </tr></tfoot>
+    </table>
+    <script>window.onload=()=>{window.print();}</script>
+    </body></html>`;
+
+        const win=window.open("","_blank");
+        if(win){win.document.write(html);win.document.close();}
+        setDownloading(null);
+    };
 
     const BBtn=(t,l)=>(
         <button onClick={()=>setSel(t)} style={{padding:"5px 12px",borderRadius:"20px",border:`1px solid ${sel===t?"rgba(110,86,207,0.7)":"rgba(255,255,255,0.1)"}`,background:sel===t?"rgba(110,86,207,0.2)":"transparent",color:sel===t?"#C4B5FD":"rgba(255,255,255,0.4)",fontFamily:"'DM Mono', monospace",fontSize:"10px",cursor:"pointer",whiteSpace:"nowrap"}}>{l}</button>
@@ -769,7 +979,8 @@ function Dashboard({ units, user }) {
 
     return (
         <div style={{padding:"16px 0"}}>
-            <div style={{display:"flex",gap:"8px",flexWrap:"wrap",alignItems:"center",marginBottom:"18px"}}>
+            {/* ── Controls row ── */}
+            <div style={{display:"flex",gap:"8px",flexWrap:"wrap",alignItems:"center",marginBottom:"12px"}}>
                 <div style={{display:"flex",gap:"6px",flexWrap:"wrap"}}>
                     {BBtn("all","All Units")}
                     {units.map(u=>BBtn(u.id,u.name))}
@@ -781,15 +992,36 @@ function Dashboard({ units, user }) {
                 </div>
             </div>
 
+            {/* ── Source filter + download row ── */}
+            <div style={{display:"flex",gap:"6px",flexWrap:"wrap",alignItems:"center",marginBottom:"18px",padding:"10px 12px",background:"rgba(255,255,255,0.02)",borderRadius:"10px",border:"1px solid rgba(255,255,255,0.06)"}}>
+                <span style={{color:"rgba(255,255,255,0.3)",fontSize:"9px",fontFamily:"'DM Mono', monospace",letterSpacing:"0.1em",textTransform:"uppercase",whiteSpace:"nowrap"}}>Filter by type:</span>
+                <button onClick={()=>setSrcFilter("all")} style={{padding:"4px 10px",borderRadius:"16px",border:`1px solid ${srcFilter==="all"?"rgba(255,255,255,0.4)":"rgba(255,255,255,0.08)"}`,background:srcFilter==="all"?"rgba(255,255,255,0.08)":"transparent",color:srcFilter==="all"?"#F0EEF8":"rgba(255,255,255,0.35)",fontFamily:"'DM Mono', monospace",fontSize:"9px",cursor:"pointer"}}>All</button>
+                {allSources.map(src=>(
+                    <button key={src.id} onClick={()=>setSrcFilter(src.id)} style={{padding:"4px 10px",borderRadius:"16px",border:`1px solid ${srcFilter===src.id?src.color:"rgba(255,255,255,0.08)"}`,background:srcFilter===src.id?`${src.color}22`:"transparent",color:srcFilter===src.id?src.color:"rgba(255,255,255,0.35)",fontFamily:"'DM Mono', monospace",fontSize:"9px",cursor:"pointer",display:"flex",alignItems:"center",gap:"4px"}}>
+                        <span style={{fontSize:"10px"}}>{src.icon}</span>{src.label}
+                    </button>
+                ))}
+                <div style={{marginLeft:"auto",display:"flex",gap:"6px"}}>
+                    <button onClick={downloadExcel} disabled={!!downloading||filteredData.length===0}
+                            style={{padding:"5px 12px",borderRadius:"8px",border:"1px solid rgba(52,211,153,0.4)",background:"rgba(52,211,153,0.08)",color:"#34D399",cursor:"pointer",fontFamily:"'DM Mono', monospace",fontSize:"10px",fontWeight:600,display:"flex",alignItems:"center",gap:"5px",opacity:downloading||filteredData.length===0?0.5:1}}>
+                        {downloading==="excel"?"⏳":"⬇"} Excel
+                    </button>
+                    <button onClick={downloadPDF} disabled={!!downloading||filteredData.length===0}
+                            style={{padding:"5px 12px",borderRadius:"8px",border:"1px solid rgba(167,139,250,0.4)",background:"rgba(167,139,250,0.08)",color:"#A78BFA",cursor:"pointer",fontFamily:"'DM Mono', monospace",fontSize:"10px",fontWeight:600,display:"flex",alignItems:"center",gap:"5px",opacity:downloading||filteredData.length===0?0.5:1}}>
+                        {downloading==="pdf"?"⏳":"🖨"} PDF
+                    </button>
+                </div>
+            </div>
+
             {loading?<div style={{color:"rgba(255,255,255,0.3)",fontFamily:"'DM Mono', monospace",fontSize:"12px",textAlign:"center",padding:"40px"}}>Loading…</div>:<>
 
-                {/* KPIs */}
-                <div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:"8px",marginBottom:"16px"}}>
+                {/* ── KPIs ── */}
+                <div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:"8px",marginBottom:"10px"}}>
                     {[
-                        {l:"Total Revenue",   v:inrFmt(stats.totalRev),       a:"#86EFAC"},
-                        {l:"Occupancy",       v:`${stats.occupancyPct}%`,     a:"#6EE7B7"},
-                        {l:"Amount Due",      v:inrFmt(stats.totalDue),       a:stats.totalDue>0?"#F59E0B":"#34D399"},
-                        {l:"Bookings",        v:stats.total,                  a:"#C4B5FD"},
+                        {l:"Revenue",      v:inrFmt(stats.totalRev),          a:"#86EFAC"},
+                        {l:"Paid",         v:inrFmt(stats.totalPaid),         a:"#34D399"},
+                        {l:"Outstanding",  v:inrFmt(stats.totalDue),          a:stats.totalDue>0?"#F59E0B":"#34D399"},
+                        {l:"Occupancy",    v:`${stats.occupancyPct}%`,        a:"#6EE7B7"},
                     ].map(s=>(
                         <div key={s.l} style={card}>
                             <div style={{color:"rgba(255,255,255,0.3)",fontSize:"8px",letterSpacing:"0.1em",textTransform:"uppercase",marginBottom:"3px"}}>{s.l}</div>
@@ -799,10 +1031,10 @@ function Dashboard({ units, user }) {
                 </div>
                 <div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:"8px",marginBottom:"16px"}}>
                     {[
-                        {l:"Bookings",    v:stats.total,                 a:"#C4B5FD"},
-                        {l:"Total Nights",v:stats.totalNights,           a:"#60A5FA"},
-                        {l:"Cancelled",   v:stats.cancelled,             a:"#FF7B7F"},
-                        {l:"Pending Pay", v:stats.byStatus.pending||0+stats.byStatus.partial||0, a:"#F59E0B"},
+                        {l:"Bookings",     v:stats.total,                     a:"#C4B5FD"},
+                        {l:"Total Nights", v:stats.totalNights,               a:"#60A5FA"},
+                        {l:"Cancelled",    v:stats.cancelled,                 a:"#FF7B7F"},
+                        {l:"Pending Pay",  v:(stats.byStatus.pending||0)+(stats.byStatus.partial||0), a:"#F59E0B"},
                     ].map(s=>(
                         <div key={s.l} style={card}>
                             <div style={{color:"rgba(255,255,255,0.3)",fontSize:"8px",letterSpacing:"0.1em",textTransform:"uppercase",marginBottom:"3px"}}>{s.l}</div>
@@ -811,44 +1043,49 @@ function Dashboard({ units, user }) {
                     ))}
                 </div>
 
-                {/* Source breakdown */}
+                {/* ── Source breakdown (clickable to filter) ── */}
                 <div style={{...card,marginBottom:"16px"}}>
-                    <div style={{color:"rgba(255,255,255,0.4)",fontSize:"9px",letterSpacing:"0.1em",textTransform:"uppercase",marginBottom:"12px",fontFamily:"'DM Mono', monospace"}}>Bookings by Source</div>
+                    <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:"12px"}}>
+                        <div style={{color:"rgba(255,255,255,0.4)",fontSize:"9px",letterSpacing:"0.1em",textTransform:"uppercase",fontFamily:"'DM Mono', monospace"}}>Bookings by Source</div>
+                        {srcFilter!=="all"&&<button onClick={()=>setSrcFilter("all")} style={{color:"rgba(255,255,255,0.3)",fontSize:"9px",fontFamily:"'DM Mono', monospace",background:"none",border:"none",cursor:"pointer"}}>✕ Clear filter</button>}
+                    </div>
                     <div style={{display:"grid",gridTemplateColumns:`repeat(${Math.min(allSources.length||1,6)},1fr)`,gap:"6px"}}>
                         {allSources.map(src=>{
-                            const s=stats.bySrc[src.id]||{count:0,revenue:0,nights:0};
-                            const pct=stats.total>0?Math.round(s.count/stats.total*100):0;
+                            const s=stats.bySrc[src.id]||{count:0,revenue:0};
+                            const isActive=srcFilter===src.id;
                             return (
-                                <div key={src.id} style={{background:`${src.color}0d`,border:`1px solid ${src.color}33`,borderRadius:"10px",padding:"10px",textAlign:"center"}}>
+                                <button key={src.id} onClick={()=>setSrcFilter(isActive?"all":src.id)}
+                                        style={{background:isActive?`${src.color}22`:`${src.color}0d`,border:`${isActive?2:1}px solid ${isActive?src.color:src.color+"33"}`,borderRadius:"10px",padding:"10px",textAlign:"center",cursor:"pointer",transition:"all 0.15s"}}>
                                     <div style={{fontSize:"16px",marginBottom:"3px"}}>{src.icon}</div>
                                     <div style={{color:src.color,fontSize:"10px",fontFamily:"'DM Mono', monospace",fontWeight:600,marginBottom:"5px"}}>{src.label}</div>
                                     <div style={{color:"#F0EEF8",fontSize:"18px",fontFamily:"'Playfair Display', serif",fontWeight:700}}>{s.count}</div>
                                     <div style={{color:"rgba(255,255,255,0.3)",fontSize:"9px",fontFamily:"'DM Mono', monospace"}}>{inrFmt(s.revenue)}</div>
-                                </div>
+                                </button>
                             );
                         })}
                     </div>
                 </div>
 
-                {/* Payment status */}
+                {/* ── Payment status ── */}
                 <div style={{...card,marginBottom:"16px"}}>
                     <div style={{color:"rgba(255,255,255,0.4)",fontSize:"9px",letterSpacing:"0.1em",textTransform:"uppercase",marginBottom:"12px",fontFamily:"'DM Mono', monospace"}}>Payment Status</div>
                     <div style={{display:"flex",gap:"8px",flexWrap:"wrap"}}>
                         {PAY_STATUSES.map(ps=>{
-                            const count=data.filter(b=>b.payment_status===ps.id&&b.status!=="cancelled").length;
-                            const rev=data.filter(b=>b.payment_status===ps.id&&b.status!=="cancelled").reduce((s,b)=>s+Number(b.total_amount||0),0);
-                            return <div key={ps.id} style={{background:`${ps.color}11`,border:`1px solid ${ps.color}33`,borderRadius:"8px",padding:"8px 12px",flex:1,minWidth:"100px"}}>
+                            const bks=filteredData.filter(b=>b.payment_status===ps.id&&b.status!=="cancelled");
+                            return <div key={ps.id} style={{background:`${ps.color}11`,border:`1px solid ${ps.color}33`,borderRadius:"8px",padding:"8px 12px",flex:1,minWidth:"90px"}}>
                                 <div style={{color:ps.color,fontSize:"10px",fontFamily:"'DM Mono', monospace",fontWeight:600}}>{ps.label}</div>
-                                <div style={{color:"#F0EEF8",fontSize:"18px",fontFamily:"'Playfair Display', serif",fontWeight:700}}>{count}</div>
-                                <div style={{color:"rgba(255,255,255,0.3)",fontSize:"9px",fontFamily:"'DM Mono', monospace"}}>{inrFmt(rev)}</div>
+                                <div style={{color:"#F0EEF8",fontSize:"18px",fontFamily:"'Playfair Display', serif",fontWeight:700}}>{bks.length}</div>
+                                <div style={{color:"rgba(255,255,255,0.3)",fontSize:"9px",fontFamily:"'DM Mono', monospace"}}>{inrFmt(bks.reduce((s,b)=>s+Number(b.total_amount||0),0))}</div>
                             </div>;
                         })}
                     </div>
                 </div>
 
-                {/* Daily revenue chart */}
+                {/* ── Daily revenue chart ── */}
                 <div style={{...card,marginBottom:"16px"}}>
-                    <div style={{color:"rgba(255,255,255,0.4)",fontSize:"9px",letterSpacing:"0.1em",textTransform:"uppercase",marginBottom:"12px",fontFamily:"'DM Mono', monospace"}}>Daily Revenue — {MONTHS[month]} {year}</div>
+                    <div style={{color:"rgba(255,255,255,0.4)",fontSize:"9px",letterSpacing:"0.1em",textTransform:"uppercase",marginBottom:"12px",fontFamily:"'DM Mono', monospace"}}>
+                        Daily Revenue — {MONTHS[month]} {year}{srcFilter!=="all"?` · ${allSources.find(s=>s.id===srcFilter)?.label||srcFilter}`:""}
+                    </div>
                     <div style={{display:"flex",alignItems:"flex-end",gap:"2px",height:"100px"}}>
                         {daily.map(({date,rev})=>{
                             const h=maxRev>0?Math.max(rev/maxRev*100,rev>0?4:0):0;
@@ -861,32 +1098,55 @@ function Dashboard({ units, user }) {
                     </div>
                 </div>
 
-                {/* Bookings table */}
+                {/* ── Bookings table ── */}
                 <div style={card}>
-                    <div style={{color:"rgba(255,255,255,0.4)",fontSize:"9px",letterSpacing:"0.1em",textTransform:"uppercase",marginBottom:"12px",fontFamily:"'DM Mono', monospace"}}>All Bookings — {MONTHS[month]} {year} ({data.length})</div>
-                    {data.length===0
-                        ?<div style={{color:"rgba(255,255,255,0.2)",fontFamily:"'DM Mono', monospace",fontSize:"12px",textAlign:"center",padding:"20px"}}>No bookings this month</div>
+                    <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:"12px"}}>
+                        <div style={{color:"rgba(255,255,255,0.4)",fontSize:"9px",letterSpacing:"0.1em",textTransform:"uppercase",fontFamily:"'DM Mono', monospace"}}>
+                            {filteredData.length} Booking{filteredData.length!==1?"s":""} — {MONTHS[month]} {year}
+                            {srcFilter!=="all"&&<span style={{color:"rgba(110,86,207,0.8)",marginLeft:"8px"}}>· {allSources.find(s=>s.id===srcFilter)?.label}</span>}
+                        </div>
+                        <div style={{display:"flex",gap:"5px"}}>
+                            <button onClick={downloadExcel} disabled={filteredData.length===0} style={{padding:"4px 10px",borderRadius:"6px",border:"1px solid rgba(52,211,153,0.3)",background:"rgba(52,211,153,0.07)",color:"#34D399",cursor:"pointer",fontFamily:"'DM Mono', monospace",fontSize:"9px",opacity:filteredData.length===0?0.4:1}}>⬇ Excel</button>
+                            <button onClick={downloadPDF}   disabled={filteredData.length===0} style={{padding:"4px 10px",borderRadius:"6px",border:"1px solid rgba(167,139,250,0.3)",background:"rgba(167,139,250,0.07)",color:"#A78BFA",cursor:"pointer",fontFamily:"'DM Mono', monospace",fontSize:"9px",opacity:filteredData.length===0?0.4:1}}>🖨 PDF</button>
+                        </div>
+                    </div>
+                    {filteredData.length===0
+                        ?<div style={{color:"rgba(255,255,255,0.2)",fontFamily:"'DM Mono', monospace",fontSize:"12px",textAlign:"center",padding:"20px"}}>No bookings found</div>
                         :<div style={{overflowX:"auto"}}>
                             <table style={{width:"100%",borderCollapse:"collapse",fontFamily:"'DM Mono', monospace",fontSize:"10px"}}>
-                                <thead><tr>{["Date","Unit","Guest","Nights","Source","Status","Payment","Total"].map(h=>(
+                                <thead><tr>{["Check-In","Check-Out","Unit","Guest","Phone","Nights","Source","Status","Payment","Total","Paid","Due"].map(h=>(
                                     <th key={h} style={{textAlign:"left",color:"rgba(255,255,255,0.3)",padding:"5px 8px",borderBottom:"1px solid rgba(255,255,255,0.06)",whiteSpace:"nowrap",letterSpacing:"0.06em"}}>{h}</th>
                                 ))}</tr></thead>
                                 <tbody>
-                                {[...data].sort((a,b)=>a.checkin_date.localeCompare(b.checkin_date)).map(b=>{
-                                    const src=allSources.find(s=>s.id===b.source)||{label:b.source,icon:"❓",color:"#94A3B8"}; const st=ST[b.status]||ST.confirmed; const ps=PS[b.payment_status]||PS.pending;
+                                {tableRows.map(b=>{
+                                    const src=allSources.find(s=>s.id===b.source)||{label:b.source,icon:"❓",color:"#94A3B8"};
+                                    const st=ST[b.status]||ST.confirmed; const ps=PS[b.payment_status]||PS.pending;
+                                    const total=Number(b.total_amount||0),paid=Number(b.paid_amount||0),due=Math.max(0,total-paid);
                                     return <tr key={b.id} style={{borderBottom:"1px solid rgba(255,255,255,0.03)",opacity:b.status==="cancelled"?0.5:1}}
                                                onMouseEnter={e=>e.currentTarget.style.background="rgba(255,255,255,0.02)"} onMouseLeave={e=>e.currentTarget.style.background="transparent"}>
                                         <td style={{padding:"6px 8px",color:"rgba(255,255,255,0.5)",whiteSpace:"nowrap"}}>{b.checkin_date}</td>
+                                        <td style={{padding:"6px 8px",color:"rgba(255,255,255,0.35)",whiteSpace:"nowrap"}}>{b.checkout_date}</td>
                                         <td style={{padding:"6px 8px",color:"rgba(255,255,255,0.4)",whiteSpace:"nowrap"}}>{units.find(u=>u.id===b.unit_id)?.name||b.unit_id}</td>
                                         <td style={{padding:"6px 8px",color:"#F0EEF8",whiteSpace:"nowrap"}}>{b.guest_name}</td>
+                                        <td style={{padding:"6px 8px",color:"rgba(255,255,255,0.35)",whiteSpace:"nowrap"}}>{b.guest_phone||"—"}</td>
                                         <td style={{padding:"6px 8px",color:"rgba(255,255,255,0.4)",textAlign:"center"}}>{b.nights||1}</td>
                                         <td style={{padding:"6px 8px"}}><span style={{background:`${src.color}22`,color:src.color,borderRadius:"4px",padding:"1px 5px",fontSize:"9px",fontWeight:600}}>{src.icon} {src.label}</span></td>
                                         <td style={{padding:"6px 8px"}}><span style={{background:`${st.color}22`,color:st.color,borderRadius:"4px",padding:"1px 5px",fontSize:"9px"}}>{st.label}</span></td>
                                         <td style={{padding:"6px 8px"}}><span style={{background:`${ps.color}22`,color:ps.color,borderRadius:"4px",padding:"1px 5px",fontSize:"9px"}}>{ps.label}</span></td>
-                                        <td style={{padding:"6px 8px",color:"#C4B5FD",fontWeight:600,whiteSpace:"nowrap"}}>{inrFmt(b.total_amount)}</td>
+                                        <td style={{padding:"6px 8px",color:"#C4B5FD",fontWeight:600,whiteSpace:"nowrap"}}>{inrFmt(total)}</td>
+                                        <td style={{padding:"6px 8px",color:"#34D399",whiteSpace:"nowrap"}}>{inrFmt(paid)}</td>
+                                        <td style={{padding:"6px 8px",color:due>0?"#F59E0B":"rgba(255,255,255,0.25)",whiteSpace:"nowrap"}}>{due>0?inrFmt(due):"—"}</td>
                                     </tr>;
                                 })}
                                 </tbody>
+                                <tfoot><tr style={{background:"rgba(110,86,207,0.08)",borderTop:"1px solid rgba(110,86,207,0.2)"}}>
+                                    <td colSpan={5} style={{padding:"7px 8px",color:"rgba(255,255,255,0.4)",fontFamily:"'DM Mono', monospace",fontSize:"10px",fontWeight:700}}>TOTAL ({tableRows.length})</td>
+                                    <td style={{padding:"7px 8px",color:"#60A5FA",textAlign:"center",fontWeight:700}}>{stats.totalNights}</td>
+                                    <td colSpan={3}></td>
+                                    <td style={{padding:"7px 8px",color:"#C4B5FD",fontWeight:700,whiteSpace:"nowrap"}}>{inrFmt(stats.totalRev)}</td>
+                                    <td style={{padding:"7px 8px",color:"#34D399",fontWeight:700,whiteSpace:"nowrap"}}>{inrFmt(stats.totalPaid)}</td>
+                                    <td style={{padding:"7px 8px",color:stats.totalDue>0?"#F59E0B":"rgba(255,255,255,0.25)",fontWeight:700,whiteSpace:"nowrap"}}>{stats.totalDue>0?inrFmt(stats.totalDue):"—"}</td>
+                                </tr></tfoot>
                             </table>
                         </div>
                     }
@@ -896,7 +1156,6 @@ function Dashboard({ units, user }) {
     );
 }
 
-// ── ADMIN PANEL ───────────────────────────────────────────────────────────────
 // ── ICAL SYNC PANEL ───────────────────────────────────────────────────────────
 function IcalSyncPanel({ units, selUnit }) {
     const [unit, setUnit]         = useState(selUnit?.id || units[0]?.id || "");
@@ -1407,14 +1666,28 @@ export default function App() {
         setModal(null);
     };
 
-    const handlePaymentUpdate=async(id,payStatus)=>{
+    const handlePaymentUpdate=async(id, payStatus, explicitPaidAmt)=>{
         setStatus("saving");
-        const paid = payStatus==="paid" ? (bookings[Object.keys(bookings).find(k=>bookings[k].find(b=>b.id===id))]||[]).find(b=>b.id===id)?.total_amount||0 : undefined;
-        const patch = {payment_status:payStatus};
-        if(paid!==undefined) patch.paid_amount=paid;
-        try{ await API.patchBooking(id,patch); await refreshBookings(); setStatus("saved"); }
-        catch(e){ setStatus("error"); }
-        setModal(null);
+        const patch = { payment_status: payStatus };
+        if (explicitPaidAmt !== undefined) {
+            patch.paid_amount = explicitPaidAmt;
+        } else if (payStatus === "paid") {
+            const allBks = Object.values(bookings).flat();
+            const bk = allBks.find(b=>b.id===id);
+            if (bk) patch.paid_amount = Number(bk.total_amount||0);
+        } else if (payStatus === "pending") {
+            patch.paid_amount = 0;
+        }
+        try {
+            await API.patchBooking(id, patch);
+            await refreshBookings();
+            setStatus("saved"); setDbErr("");
+            // Update the modal's booking in-place so UI reflects new values immediately
+            setModal(prev => prev?.type==="detail" && prev.booking?.id===id
+                ? { ...prev, booking: { ...prev.booking, ...patch } }
+                : prev
+            );
+        } catch(e){ setStatus("error"); setDbErr(e.message); }
     };
 
     const handleAddUnit=async(n,l)=>{
