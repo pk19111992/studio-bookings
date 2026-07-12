@@ -545,7 +545,7 @@ function BookingForm({ unit, onSave, onClose, editBooking, defaultDate, sources,
                 )}
 
                 {/* Status + Overflow */}
-                <div style={{display:"none",gridTemplateColumns:"1fr 1fr",gap:"10px"}}>
+                <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:"10px"}}>
                     <div><label style={lbl}>Booking Status</label>
                         <select style={inp} value={f.status} onChange={e=>set("status",e.target.value)}>
                             {STATUSES.map(s=><option key={s.id} value={s.id} style={{background:"#1a1a2e"}}>{s.label}</option>)}
@@ -1580,7 +1580,7 @@ export default function App() {
 
     useEffect(()=>{
         if(!user) return;
-        API.units().then(list=>{setUnits(list||[]);if(list?.length)setSelUnit(list[0]);setStatus("saved");}).catch(e=>{setStatus("error");setDbErr(e.message);});
+        API.units().then(list=>{setUnits(list||[]); const preferred=(list||[]).find(u=>u.id==="unit-1626")||(list||[])[0]; if(preferred)setSelUnit(preferred); setStatus("saved");}).catch(e=>{setStatus("error");setDbErr(e.message);});
     },[user]);
 
     // Load this unit's custom sources whenever selected unit changes

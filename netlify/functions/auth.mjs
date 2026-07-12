@@ -176,10 +176,10 @@ export default async function handler(req) {
     // ── Google OAuth step 2 callback ────────────────────────────────────────
     if (action === "callback") {
       const code = url.searchParams.get("code");
-      if (!code) return Response.redirect(`${SITE_URL}?error=oauth_denied`);
+      if (!code) return Response.redirect(`${SITE_URL}/app?error=oauth_denied`);
       const tokenRes  = await fetch("https://oauth2.googleapis.com/token", { method:"POST", headers:{"Content-Type":"application/x-www-form-urlencoded"}, body:new URLSearchParams({ code, client_id:GOOGLE_CLIENT_ID, client_secret:GOOGLE_CLIENT_SECRET, redirect_uri:`${SITE_URL}/api/auth?action=callback`, grant_type:"authorization_code" }) });
       const tokenData = await tokenRes.json();
-      if (!tokenData.access_token) return Response.redirect(`${SITE_URL}?error=oauth_failed`);
+      if (!tokenData.access_token) return Response.redirect(`${SITE_URL}/app?error=oauth_failed`);
       const info = await (await fetch("https://www.googleapis.com/oauth2/v2/userinfo", { headers:{ Authorization:`Bearer ${tokenData.access_token}` } })).json();
       const role = info.email.toLowerCase() === ADMIN_EMAIL ? "admin" : "user";
       const existing = await sbSelect("users", `email=eq.${encodeURIComponent(info.email)}`);
@@ -192,7 +192,7 @@ export default async function handler(req) {
         await sbUpsert("users", { id, email:info.email, name:info.name, avatar:info.picture, provider:"google", role });
         u = { id, email:info.email, name:info.name, avatar:info.picture, bio:null, phone:null, role, provider:"google" };
       }
-      return Response.redirect(`${SITE_URL}/#token=${await makeToken(u)}`);
+      return Response.redirect(`${SITE_URL}/app/#token=${await makeToken(u)}`);
     }
 
     // ── list all users (admin only) ─────────────────────────────────────────

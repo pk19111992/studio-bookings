@@ -1,33 +1,47 @@
 [build]
-command = "npm run build"
-publish = "dist"
-functions = "netlify/functions"
+  command = "npm run build"
+  publish = "dist"
+  functions = "netlify/functions"
 
 [functions]
-node_bundler = "esbuild"
+  node_bundler = "esbuild"
 
 [dev]
-command = "vite"
-port = 8888
-targetPort = 5173
-autoLaunch = false
+  command = "vite"
+  port = 8888
+  targetPort = 5173
+  autoLaunch = false
+
+# ── API functions ──────────────────────────────────────────────────────────────
+[[redirects]]
+  from = "/api/auth"
+  to = "/.netlify/functions/auth"
+  status = 200
 
 [[redirects]]
-from = "/api/auth"
-to = "/.netlify/functions/auth"
-status = 200
+  from = "/api/bookings"
+  to = "/.netlify/functions/bookings"
+  status = 200
 
 [[redirects]]
-from = "/api/bookings"
-to = "/.netlify/functions/bookings"
-status = 200
+  from = "/api/ical"
+  to = "/.netlify/functions/ical"
+  status = 200
+
+# ── Booking app — serve React SPA from /app ────────────────────────────────────
+# All /app/* routes serve the React app's index (handles client-side routing)
+[[redirects]]
+  from = "/app"
+  to = "/app/index.html"
+  status = 200
 
 [[redirects]]
-from = "/api/ical"
-to = "/.netlify/functions/ical"
-status = 200
+  from = "/app/*"
+  to = "/app/index.html"
+  status = 200
 
+# ── Homepage — root serves the static landing page ────────────────────────────
 [[redirects]]
-from = "/*"
-to = "/index.html"
-status = 200
+  from = "/*"
+  to = "/home.html"
+  status = 200
