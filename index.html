@@ -2,9 +2,22 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Gaur City — Booking Manager</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0" />
+    <title>Blissful Perch — Booking Manager</title>
     <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🏢</text></svg>" />
+    <style>
+      /* Prevent flash of wrong theme on load */
+      html { background: #0A0A12; }
+      body { margin: 0; }
+    </style>
+    <script>
+      // Apply saved theme class immediately before React renders
+      (function() {
+        var t = localStorage.getItem('gcbm_theme') || 'dark';
+        document.documentElement.setAttribute('data-theme', t);
+        if (t === 'light') document.documentElement.style.background = '#F5F4F0';
+      })();
+    </script>
   </head>
   <body>
     <div id="root"></div>

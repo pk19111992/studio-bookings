@@ -100,11 +100,11 @@ const API = {
 };
 
 // ── Shared styles ─────────────────────────────────────────────────────────────
-const inp = { background:"rgba(255,255,255,0.05)", border:"1px solid rgba(255,255,255,0.1)", borderRadius:"8px", color:"#F0EEF8", padding:"9px 12px", fontSize:"12px", fontFamily:"'DM Mono', monospace", width:"100%", outline:"none", boxSizing:"border-box" };
-const lbl = { color:"rgba(255,255,255,0.4)", fontSize:"9px", fontFamily:"'DM Mono', monospace", letterSpacing:"0.1em", textTransform:"uppercase", display:"block", marginBottom:"4px" };
-const card = { background:"rgba(255,255,255,0.03)", border:"1px solid rgba(255,255,255,0.07)", borderRadius:"12px", padding:"16px" };
+const inp  = { background:"var(--inp-bg)", border:"1px solid var(--border)", borderRadius:"8px", color:"var(--text)", padding:"9px 12px", fontSize:"12px", fontFamily:"'DM Mono', monospace", width:"100%", outline:"none", boxSizing:"border-box" };
+const lbl  = { color:"var(--text-muted)", fontSize:"9px", fontFamily:"'DM Mono', monospace", letterSpacing:"0.1em", textTransform:"uppercase", display:"block", marginBottom:"4px" };
+const card = { background:"var(--card-bg)", border:"1px solid var(--card-border)", borderRadius:"12px", padding:"16px" };
 const fi   = e => e.target.style.borderColor="rgba(110,86,207,0.7)";
-const fb   = e => e.target.style.borderColor="rgba(255,255,255,0.1)";
+const fb   = e => e.target.style.borderColor="var(--border)";
 
 // ── Modal wrapper ─────────────────────────────────────────────────────────────
 function Modal({ isOpen, onClose, children, wide }) {
@@ -114,8 +114,8 @@ function Modal({ isOpen, onClose, children, wide }) {
     },[onClose]);
     if (!isOpen) return null;
     return (
-        <div onClick={onClose} style={{position:"fixed",inset:0,zIndex:1000,background:"rgba(10,10,18,0.85)",backdropFilter:"blur(6px)",display:"flex",alignItems:"center",justifyContent:"center",animation:"fadeIn 0.15s",padding:"16px"}}>
-            <div onClick={e=>e.stopPropagation()} style={{background:"#12121E",border:"1px solid rgba(255,255,255,0.08)",borderRadius:"16px",padding:"24px",width:"100%",maxWidth:wide?"760px":"500px",boxShadow:"0 24px 60px rgba(0,0,0,0.7)",animation:"slideUp 0.2s cubic-bezier(.34,1.4,.64,1)",maxHeight:"92vh",overflowY:"auto"}}>
+        <div className="modal-overlay" onClick={onClose} style={{position:"fixed",inset:0,zIndex:1000,background:"rgba(10,10,18,0.85)",backdropFilter:"blur(6px)",display:"flex",alignItems:"center",justifyContent:"center",animation:"fadeIn 0.15s",padding:"16px"}}>
+            <div className={wide?"modal-wide":"modal-box"} onClick={e=>e.stopPropagation()} style={{background:"var(--modal-bg)",border:`1px solid var(--modal-border)`,borderRadius:"16px",padding:"24px",width:"100%",maxWidth:wide?"760px":"500px",boxShadow:"0 24px 60px rgba(0,0,0,0.7)",animation:"slideUp 0.2s cubic-bezier(.34,1.4,.64,1)",maxHeight:"92vh",overflowY:"auto"}}>
                 {children}
             </div>
         </div>
@@ -131,8 +131,8 @@ function Pill({ label, color, size=10 }) {
 function SectionHeader({ title, onClose }) {
     return (
         <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:"18px"}}>
-            <div style={{color:"#F0EEF8",fontSize:"16px",fontFamily:"'Playfair Display', serif",fontWeight:700}}>{title}</div>
-            {onClose && <button onClick={onClose} style={{background:"rgba(255,255,255,0.06)",border:"none",borderRadius:"8px",color:"rgba(255,255,255,0.5)",cursor:"pointer",fontSize:"18px",width:"32px",height:"32px",display:"flex",alignItems:"center",justifyContent:"center"}}>×</button>}
+            <div style={{color:"var(--text)",fontSize:"16px",fontFamily:"'Playfair Display', serif",fontWeight:700}}>{title}</div>
+            {onClose && <button onClick={onClose} style={{background:"var(--card-bg)",border:"none",borderRadius:"8px",color:"var(--text-soft)",cursor:"pointer",fontSize:"18px",width:"32px",height:"32px",display:"flex",alignItems:"center",justifyContent:"center"}}>×</button>}
         </div>
     );
 }
@@ -166,31 +166,32 @@ function LoginPage({ onLogin }) {
         setLoading(false);
     };
 
+    const savedTheme = typeof localStorage !== 'undefined' ? (localStorage.getItem("gcbm_theme") || "dark") : "dark";
     return (
-        <div style={{minHeight:"100vh",background:"#0A0A12",display:"flex",alignItems:"center",justifyContent:"center",fontFamily:"'DM Mono', monospace",padding:"16px"}}>
+        <div className={`theme-${savedTheme}`} style={{minHeight:"100vh",background:"var(--bg)",display:"flex",alignItems:"center",justifyContent:"center",fontFamily:"'DM Mono', monospace",padding:"16px"}}>
             <div style={{width:"100%",maxWidth:"400px"}}>
                 <div style={{textAlign:"center",marginBottom:"28px"}}>
                     <div style={{fontSize:"36px",marginBottom:"8px"}}>🏢</div>
-                    <div style={{color:"#F0EEF8",fontSize:"22px",fontFamily:"'Playfair Display', serif",fontWeight:900}}>Gaur City</div>
-                    <div style={{color:"rgba(255,255,255,0.3)",fontSize:"10px",letterSpacing:"0.2em",textTransform:"uppercase"}}>Booking Manager</div>
+                    <div style={{color:"var(--text)",fontSize:"22px",fontFamily:"'Playfair Display', serif",fontWeight:900}}>Gaur City</div>
+                    <div style={{color:"var(--text-muted)",fontSize:"10px",letterSpacing:"0.2em",textTransform:"uppercase"}}>Booking Manager</div>
                 </div>
-                <div style={{background:"rgba(255,255,255,0.03)",border:"1px solid rgba(255,255,255,0.08)",borderRadius:"16px",padding:"28px"}}>
-                    <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:"4px",background:"rgba(255,255,255,0.04)",borderRadius:"10px",padding:"4px",marginBottom:"20px"}}>
+                <div style={{background:"var(--card-bg)",border:"1px solid var(--card-border)",borderRadius:"16px",padding:"28px"}}>
+                    <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:"4px",background:"var(--card-bg)",borderRadius:"10px",padding:"4px",marginBottom:"20px"}}>
                         {["login","register"].map(t=>(
-                            <button key={t} onClick={()=>{setTab(t);setErr("");}} style={{padding:"8px",borderRadius:"8px",border:"none",background:tab===t?"rgba(110,86,207,0.5)":"transparent",color:tab===t?"#F0EEF8":"rgba(255,255,255,0.35)",cursor:"pointer",fontFamily:"'DM Mono', monospace",fontSize:"11px",letterSpacing:"0.08em",textTransform:"uppercase"}}>
+                            <button key={t} onClick={()=>{setTab(t);setErr("");}} style={{padding:"8px",borderRadius:"8px",border:"none",background:tab===t?"rgba(110,86,207,0.5)":"transparent",color:tab===t?"var(--text)":"rgba(255,255,255,0.35)",cursor:"pointer",fontFamily:"'DM Mono', monospace",fontSize:"11px",letterSpacing:"0.08em",textTransform:"uppercase"}}>
                                 {t==="login"?"Sign In":"Register"}
                             </button>
                         ))}
                     </div>
-                    <a href={API.googleUrl()} style={{display:"flex",alignItems:"center",justifyContent:"center",gap:"10px",padding:"11px",borderRadius:"10px",border:"1px solid rgba(255,255,255,0.12)",background:"rgba(255,255,255,0.04)",color:"#F0EEF8",textDecoration:"none",fontSize:"13px",fontFamily:"'DM Mono', monospace",marginBottom:"18px"}}
+                    <a href={API.googleUrl()} style={{display:"flex",alignItems:"center",justifyContent:"center",gap:"10px",padding:"11px",borderRadius:"10px",border:"1px solid rgba(255,255,255,0.12)",background:"var(--card-bg)",color:"var(--text)",textDecoration:"none",fontSize:"13px",fontFamily:"'DM Mono', monospace",marginBottom:"18px"}}
                        onMouseEnter={e=>e.currentTarget.style.background="rgba(255,255,255,0.08)"} onMouseLeave={e=>e.currentTarget.style.background="rgba(255,255,255,0.04)"}>
                         <svg width="18" height="18" viewBox="0 0 48 48"><path fill="#EA4335" d="M24 9.5c3.54 0 6.71 1.22 9.21 3.6l6.85-6.85C35.9 2.38 30.47 0 24 0 14.62 0 6.51 5.38 2.56 13.22l7.98 6.19C12.43 13.72 17.74 9.5 24 9.5z"/><path fill="#4285F4" d="M46.98 24.55c0-1.57-.15-3.09-.38-4.55H24v9.02h12.94c-.58 2.96-2.26 5.48-4.78 7.18l7.73 6c4.51-4.18 7.09-10.36 7.09-17.65z"/><path fill="#FBBC05" d="M10.53 28.59c-.48-1.45-.76-2.99-.76-4.59s.27-3.14.76-4.59l-7.98-6.19C.92 16.46 0 20.12 0 24c0 3.88.92 7.54 2.56 10.78l7.97-6.19z"/><path fill="#34A853" d="M24 48c6.48 0 11.93-2.13 15.89-5.81l-7.73-6c-2.18 1.48-4.97 2.35-8.16 2.35-6.26 0-11.57-4.22-13.47-9.91l-7.98 6.19C6.51 42.62 14.62 48 24 48z"/></svg>
                         Continue with Google
                     </a>
                     <div style={{display:"flex",alignItems:"center",gap:"12px",marginBottom:"18px"}}>
-                        <div style={{flex:1,height:"1px",background:"rgba(255,255,255,0.08)"}}/>
-                        <span style={{color:"rgba(255,255,255,0.2)",fontSize:"10px"}}>OR</span>
-                        <div style={{flex:1,height:"1px",background:"rgba(255,255,255,0.08)"}}/>
+                        <div style={{flex:1,height:"1px",background:"var(--inp-bg)"}}/>
+                        <span style={{color:"var(--text-faint)",fontSize:"10px"}}>OR</span>
+                        <div style={{flex:1,height:"1px",background:"var(--inp-bg)"}}/>
                     </div>
                     <div style={{display:"grid",gap:"10px"}}>
                         {tab==="register"&&<div><label style={lbl}>Full Name</label><input style={inp} value={name} onChange={e=>setName(e.target.value)} placeholder="Your name" onFocus={fi} onBlur={fb}/></div>}
@@ -203,7 +204,7 @@ function LoginPage({ onLogin }) {
                         {loading?"Please wait…":tab==="login"?"Sign In":"Create Account"}
                     </button>
                 </div>
-                <div style={{textAlign:"center",marginTop:"12px",color:"rgba(255,255,255,0.2)",fontSize:"10px",fontFamily:"'DM Mono', monospace"}}>New users can register freely and add their own apartments</div>
+                <div style={{textAlign:"center",marginTop:"12px",color:"var(--text-faint)",fontSize:"10px",fontFamily:"'DM Mono', monospace"}}>New users can register freely and add their own apartments</div>
             </div>
         </div>
     );
@@ -247,24 +248,24 @@ function ProfileModal({ user, onClose, onUpdate }) {
     return (
         <>
             <SectionHeader title="My Profile" onClose={onClose}/>
-            <div style={{display:"flex",alignItems:"center",gap:"14px",padding:"14px",background:"rgba(255,255,255,0.03)",borderRadius:"10px",border:"1px solid rgba(255,255,255,0.07)",marginBottom:"18px"}}>
+            <div style={{display:"flex",alignItems:"center",gap:"14px",padding:"14px",background:"var(--card-bg)",borderRadius:"10px",border:"1px solid var(--card-border)",marginBottom:"18px"}}>
                 <div style={{position:"relative",flexShrink:0}}>
                     {preview?<img src={preview} alt="" style={{width:"56px",height:"56px",borderRadius:"50%",objectFit:"cover",border:"3px solid rgba(110,86,207,0.5)"}} onError={()=>setPreview("")}/>
                         :<div style={{width:"56px",height:"56px",borderRadius:"50%",background:"linear-gradient(135deg,#6E56CF,#9B7FE8)",display:"flex",alignItems:"center",justifyContent:"center",fontSize:"22px",fontWeight:700,color:"#fff"}}>{initials}</div>}
-                    <label htmlFor="av-up" style={{position:"absolute",bottom:"-2px",right:"-2px",width:"20px",height:"20px",background:"linear-gradient(135deg,#6E56CF,#9B7FE8)",borderRadius:"50%",display:"flex",alignItems:"center",justifyContent:"center",cursor:"pointer",fontSize:"10px",border:"2px solid #0A0A12"}} title="Upload photo">📷<input id="av-up" type="file" accept="image/*" onChange={handleFile} style={{display:"none"}}/></label>
+                    <label htmlFor="av-up" style={{position:"absolute",bottom:"-2px",right:"-2px",width:"20px",height:"20px",background:"linear-gradient(135deg,#6E56CF,#9B7FE8)",borderRadius:"50%",display:"flex",alignItems:"center",justifyContent:"center",cursor:"pointer",fontSize:"10px",border:"2px solid var(--bg)"}} title="Upload photo">📷<input id="av-up" type="file" accept="image/*" onChange={handleFile} style={{display:"none"}}/></label>
                 </div>
                 <div style={{flex:1,minWidth:0}}>
-                    <div style={{color:"#F0EEF8",fontSize:"14px",fontFamily:"'Playfair Display', serif",fontWeight:700}}>{user.name||"—"}</div>
-                    <div style={{color:"rgba(255,255,255,0.3)",fontSize:"10px",fontFamily:"'DM Mono', monospace",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{user.email}</div>
+                    <div style={{color:"var(--text)",fontSize:"14px",fontFamily:"'Playfair Display', serif",fontWeight:700}}>{user.name||"—"}</div>
+                    <div style={{color:"var(--text-muted)",fontSize:"10px",fontFamily:"'DM Mono', monospace",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{user.email}</div>
                     <div style={{display:"flex",gap:"5px",marginTop:"5px"}}>
                         <Pill label={user.role==="admin"?"ADMIN":"USER"} color={user.role==="admin"?"#C4B5FD":"rgba(255,255,255,0.4)"} size={9}/>
                         <Pill label={user.provider==="google"?"Google":"Email"} color="rgba(255,255,255,0.3)" size={9}/>
                     </div>
                 </div>
             </div>
-            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:"4px",background:"rgba(255,255,255,0.04)",borderRadius:"10px",padding:"4px",marginBottom:"18px"}}>
+            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:"4px",background:"var(--card-bg)",borderRadius:"10px",padding:"4px",marginBottom:"18px"}}>
                 {[["profile","✏ Profile"],["password","🔒 Password"]].map(([t,l])=>(
-                    <button key={t} onClick={()=>setTab(t)} style={{padding:"7px",borderRadius:"8px",border:"none",background:tab===t?"rgba(110,86,207,0.5)":"transparent",color:tab===t?"#F0EEF8":"rgba(255,255,255,0.35)",cursor:"pointer",fontFamily:"'DM Mono', monospace",fontSize:"11px"}}>{l}</button>
+                    <button key={t} onClick={()=>setTab(t)} style={{padding:"7px",borderRadius:"8px",border:"none",background:tab===t?"rgba(110,86,207,0.5)":"transparent",color:tab===t?"var(--text)":"rgba(255,255,255,0.35)",cursor:"pointer",fontFamily:"'DM Mono', monospace",fontSize:"11px"}}>{l}</button>
                 ))}
             </div>
             {msg.text&&<div style={{color:msg.type==="err"?"#FF7B7F":"#74C69D",fontSize:"11px",marginBottom:"12px",padding:"8px 12px",background:msg.type==="err"?"rgba(255,90,95,0.1)":"rgba(39,201,63,0.08)",borderRadius:"6px",border:`1px solid ${msg.type==="err"?"rgba(255,90,95,0.2)":"rgba(39,201,63,0.2)"}`}}>{msg.type==="err"?"⚠":"✓"} {msg.text}</div>}
@@ -279,7 +280,7 @@ function ProfileModal({ user, onClose, onUpdate }) {
             )}
             {tab==="password"&&(
                 user.provider==="google"
-                    ?<div style={{textAlign:"center",padding:"24px 0",color:"rgba(255,255,255,0.3)",fontFamily:"'DM Mono', monospace",fontSize:"12px",lineHeight:1.8}}><div style={{fontSize:"28px",marginBottom:"10px"}}>🔗</div>Account uses Google sign-in.<br/>Password managed by Google.</div>
+                    ?<div style={{textAlign:"center",padding:"24px 0",color:"var(--text-muted)",fontFamily:"'DM Mono', monospace",fontSize:"12px",lineHeight:1.8}}><div style={{fontSize:"28px",marginBottom:"10px"}}>🔗</div>Account uses Google sign-in.<br/>Password managed by Google.</div>
                     :<div style={{display:"grid",gap:"12px"}}>
                         <div><label style={lbl}>Current Password</label><input style={inp} type="password" value={curPw} onChange={e=>setCurPw(e.target.value)} onFocus={fi} onBlur={fb}/></div>
                         <div><label style={lbl}>New Password</label><input style={inp} type="password" value={newPw} onChange={e=>setNewPw(e.target.value)} onFocus={fi} onBlur={fb}/></div>
@@ -384,12 +385,12 @@ function BookingForm({ unit, onSave, onClose, editBooking, defaultDate, sources,
             <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:"16px"}}>
                 <div>
                     <div style={{color:"rgba(110,86,207,0.8)",fontSize:"9px",fontFamily:"'DM Mono', monospace",letterSpacing:"0.15em",textTransform:"uppercase",marginBottom:"2px"}}>{unit.name}</div>
-                    <div style={{color:"#F0EEF8",fontSize:"16px",fontFamily:"'Playfair Display', serif",fontWeight:700}}>{editBooking?"Edit Booking":"New Booking"}</div>
-                    <div style={{color:"rgba(255,255,255,0.3)",fontSize:"10px",fontFamily:"'DM Mono', monospace",marginTop:"2px"}}>
+                    <div style={{color:"var(--text)",fontSize:"16px",fontFamily:"'Playfair Display', serif",fontWeight:700}}>{editBooking?"Edit Booking":"New Booking"}</div>
+                    <div style={{color:"var(--text-muted)",fontSize:"10px",fontFamily:"'DM Mono', monospace",marginTop:"2px"}}>
                         {isSameDay ? `Same day · ${halfDay?"½ Half day":"Full day"}` : `${nights} night${nights>1?"s":""}`}
                     </div>
                 </div>
-                <button onClick={onClose} style={{background:"rgba(255,255,255,0.06)",border:"none",borderRadius:"8px",color:"rgba(255,255,255,0.5)",cursor:"pointer",fontSize:"18px",width:"32px",height:"32px",display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}>×</button>
+                <button onClick={onClose} style={{background:"var(--card-bg)",border:"none",borderRadius:"8px",color:"var(--text-soft)",cursor:"pointer",fontSize:"18px",width:"32px",height:"32px",display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}>×</button>
             </div>
 
             <div style={{display:"grid",gap:"14px"}}>
@@ -413,7 +414,7 @@ function BookingForm({ unit, onSave, onClose, editBooking, defaultDate, sources,
                         <input style={inp} type="time" value={f.check_in_time} onChange={e=>set("check_in_time",e.target.value)}/>
                     </div>
                     <div>
-                        <label style={lbl}>Check-Out Time {isSameDay&&<span style={{color:"rgba(255,255,255,0.3)",fontSize:"8px"}}>(same day)</span>}</label>
+                        <label style={lbl}>Check-Out Time {isSameDay&&<span style={{color:"var(--text-muted)",fontSize:"8px"}}>(same day)</span>}</label>
                         <input style={inp} type="time" value={f.check_out_time} onChange={e=>set("check_out_time",e.target.value)}/>
                     </div>
                 </div>
@@ -429,7 +430,7 @@ function BookingForm({ unit, onSave, onClose, editBooking, defaultDate, sources,
                             {label:"2 Nights",  ci:"14:00", co:"11:00", coDt:addDays(f.checkin_date,2),   tip:"2 nights"},
                         ].map(p=>(
                             <button key={p.label} title={p.tip} onClick={()=>setF(prev=>({...prev,check_in_time:p.ci,check_out_time:p.co,checkout_date:p.coDt}))}
-                                    style={{padding:"4px 10px",borderRadius:"6px",border:"1px solid rgba(255,255,255,0.1)",background:"rgba(255,255,255,0.04)",color:"rgba(255,255,255,0.55)",fontFamily:"'DM Mono', monospace",fontSize:"9px",cursor:"pointer",transition:"all 0.15s"}}
+                                    style={{padding:"4px 10px",borderRadius:"6px",border:"1px solid var(--border)",background:"var(--card-bg)",color:"rgba(255,255,255,0.55)",fontFamily:"'DM Mono', monospace",fontSize:"9px",cursor:"pointer",transition:"all 0.15s"}}
                                     onMouseEnter={e=>{e.currentTarget.style.borderColor="rgba(110,86,207,0.5)";e.currentTarget.style.color="#C4B5FD";}}
                                     onMouseLeave={e=>{e.currentTarget.style.borderColor="rgba(255,255,255,0.1)";e.currentTarget.style.color="rgba(255,255,255,0.55)";}}>
                                 {p.label}
@@ -443,12 +444,12 @@ function BookingForm({ unit, onSave, onClose, editBooking, defaultDate, sources,
                     <label style={lbl}>Booking Source</label>
                     <div style={{display:"grid",gridTemplateColumns:`repeat(${Math.min(sources.length+1,6)},1fr)`,gap:"5px"}}>
                         {sources.map(s=>(
-                            <button key={s.id} onClick={()=>set("source",s.id)} style={{padding:"8px 4px",borderRadius:"8px",border:`1px solid ${f.source===s.id?s.color:"rgba(255,255,255,0.08)"}`,background:f.source===s.id?`${s.color}22`:"rgba(255,255,255,0.02)",color:f.source===s.id?s.color:"rgba(255,255,255,0.35)",fontFamily:"'DM Mono', monospace",fontSize:"9px",cursor:"pointer",display:"flex",flexDirection:"column",alignItems:"center",gap:"3px",transition:"all 0.15s"}}>
+                            <button key={s.id} onClick={()=>set("source",s.id)} style={{padding:"8px 4px",borderRadius:"8px",border:`1px solid ${f.source===s.id?s.color:"rgba(255,255,255,0.08)"}`,background:f.source===s.id?`${s.color}22`:"rgba(255,255,255,0.02)",color:f.source===s.id?s.color:"var(--text-muted)",fontFamily:"'DM Mono', monospace",fontSize:"9px",cursor:"pointer",display:"flex",flexDirection:"column",alignItems:"center",gap:"3px",transition:"all 0.15s"}}>
                                 <span style={{fontSize:"14px"}}>{s.icon}</span>
                                 <span style={{textAlign:"center",lineHeight:1.1}}>{s.label}</span>
                             </button>
                         ))}
-                        <button onClick={()=>setShowAddSrc(true)} style={{padding:"8px 4px",borderRadius:"8px",border:"1px dashed rgba(255,255,255,0.15)",background:"transparent",color:"rgba(255,255,255,0.3)",fontFamily:"'DM Mono', monospace",fontSize:"9px",cursor:"pointer",display:"flex",flexDirection:"column",alignItems:"center",gap:"3px",transition:"all 0.15s"}}
+                        <button onClick={()=>setShowAddSrc(true)} style={{padding:"8px 4px",borderRadius:"8px",border:"1px dashed rgba(255,255,255,0.15)",background:"transparent",color:"var(--text-muted)",fontFamily:"'DM Mono', monospace",fontSize:"9px",cursor:"pointer",display:"flex",flexDirection:"column",alignItems:"center",gap:"3px",transition:"all 0.15s"}}
                                 onMouseEnter={e=>{e.currentTarget.style.borderColor="rgba(110,86,207,0.5)";e.currentTarget.style.color="#C4B5FD";}}
                                 onMouseLeave={e=>{e.currentTarget.style.borderColor="rgba(255,255,255,0.15)";e.currentTarget.style.color="rgba(255,255,255,0.3)";}}>
                             <span style={{fontSize:"14px"}}>+</span>
@@ -463,10 +464,10 @@ function BookingForm({ unit, onSave, onClose, editBooking, defaultDate, sources,
                                 <input autoFocus style={{...inp,flex:1}} value={newSrcLabel} onChange={e=>setNewSrcLabel(e.target.value)} placeholder="e.g. Rajesh, Booking.com…" onFocus={fi} onBlur={fb}
                                        onKeyDown={async e=>{ if(e.key==="Enter"){ if(!newSrcLabel.trim())return; setAddingSrc(true); setSrcErr(""); try{ const newId=await onAddSource(newSrcLabel.trim()); set("source",newId); setNewSrcLabel(""); setShowAddSrc(false);}catch(err){setSrcErr(err.message);} setAddingSrc(false);} }}/>
                                 <button onClick={async()=>{ if(!newSrcLabel.trim())return; setAddingSrc(true); setSrcErr(""); try{ const newId=await onAddSource(newSrcLabel.trim()); set("source",newId); setNewSrcLabel(""); setShowAddSrc(false);}catch(err){setSrcErr(err.message);} setAddingSrc(false); }} disabled={addingSrc||!newSrcLabel.trim()} style={{padding:"8px 14px",borderRadius:"6px",border:"none",background:"linear-gradient(135deg,#6E56CF,#9B7FE8)",color:"#fff",cursor:"pointer",fontFamily:"'DM Mono', monospace",fontSize:"10px",fontWeight:700,opacity:addingSrc||!newSrcLabel.trim()?0.5:1}}>{addingSrc?"…":"Add"}</button>
-                                <button onClick={()=>{setShowAddSrc(false);setNewSrcLabel("");setSrcErr("");}} style={{padding:"8px 10px",borderRadius:"6px",border:"none",background:"rgba(255,255,255,0.06)",color:"rgba(255,255,255,0.4)",cursor:"pointer",fontSize:"13px"}}>×</button>
+                                <button onClick={()=>{setShowAddSrc(false);setNewSrcLabel("");setSrcErr("");}} style={{padding:"8px 10px",borderRadius:"6px",border:"none",background:"var(--card-bg)",color:"var(--text-muted)",cursor:"pointer",fontSize:"13px"}}>×</button>
                             </div>
                             {srcErr && <div style={{color:"#FF7B7F",fontSize:"10px",marginTop:"6px",fontFamily:"'DM Mono', monospace"}}>⚠ {srcErr}</div>}
-                            <div style={{color:"rgba(255,255,255,0.3)",fontSize:"9px",marginTop:"6px",fontFamily:"'DM Mono', monospace"}}>This source will only be available for {unit.name}</div>
+                            <div style={{color:"var(--text-muted)",fontSize:"9px",marginTop:"6px",fontFamily:"'DM Mono', monospace"}}>This source will only be available for {unit.name}</div>
                         </div>
                     )}
                 </div>
@@ -484,7 +485,7 @@ function BookingForm({ unit, onSave, onClose, editBooking, defaultDate, sources,
                 {/* Amount */}
                 <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:"10px"}}>
                     <div>
-                        <label style={lbl}>Amount (₹){nights>1&&<span style={{color:"rgba(255,255,255,0.3)",fontSize:"8px"}}> per night</span>}</label>
+                        <label style={lbl}>Amount (₹){nights>1&&<span style={{color:"var(--text-muted)",fontSize:"8px"}}> per night</span>}</label>
                         <input style={inp} type="number" min="0" value={f.amount_per_night} onChange={e=>set("amount_per_night",e.target.value)} placeholder="e.g. 1800" onFocus={fi} onBlur={fb}/>
                     </div>
                     <div><label style={lbl}>Total Amount (₹)</label>
@@ -503,7 +504,7 @@ function BookingForm({ unit, onSave, onClose, editBooking, defaultDate, sources,
 
                 {/* Payment — Direct / Custom sources only */}
                 {showPayment && (
-                    <div style={{background:"rgba(255,255,255,0.03)",border:"1px solid rgba(255,255,255,0.07)",borderRadius:"8px",padding:"12px 14px"}}>
+                    <div style={{background:"var(--card-bg)",border:"1px solid var(--card-border)",borderRadius:"8px",padding:"12px 14px"}}>
                         <label style={{...lbl,marginBottom:"8px"}}>Payment</label>
                         <div style={{display:"flex",gap:"5px",marginBottom:"8px"}}>
                             {[{id:"pending",label:"⏳ Pending",c:"#F59E0B"},{id:"partial",label:"💵 Partial",c:"#60A5FA"},{id:"paid",label:"✓ Paid",c:"#34D399"}].map(ps=>(
@@ -528,7 +529,7 @@ function BookingForm({ unit, onSave, onClose, editBooking, defaultDate, sources,
                             </div>
                         )}
                         {f.source!=="direct" && (
-                            <div style={{color:"rgba(255,255,255,0.25)",fontSize:"9px",fontFamily:"'DM Mono', monospace",marginTop:"6px"}}>
+                            <div style={{color:"var(--text-faint)",fontSize:"9px",fontFamily:"'DM Mono', monospace",marginTop:"6px"}}>
                                 {sources.find(s=>s.id===f.source)?.label||f.source} — settle at month end via UPI
                             </div>
                         )}
@@ -537,8 +538,8 @@ function BookingForm({ unit, onSave, onClose, editBooking, defaultDate, sources,
 
                 {/* Airbnb / MMT note */}
                 {["airbnb","goibibo"].includes(f.source) && (
-                    <div style={{background:"rgba(255,255,255,0.02)",border:"1px solid rgba(255,255,255,0.06)",borderRadius:"8px",padding:"10px 14px"}}>
-                        <div style={{color:"rgba(255,255,255,0.4)",fontSize:"10px",fontFamily:"'DM Mono', monospace"}}>
+                    <div style={{background:"var(--header-bg)",border:"1px solid var(--card-border)",borderRadius:"8px",padding:"10px 14px"}}>
+                        <div style={{color:"var(--text-muted)",fontSize:"10px",fontFamily:"'DM Mono', monospace"}}>
                             💳 {f.source==="airbnb"?"Airbnb":"MMT/GoIbibo"} payment deposited directly to your account
                         </div>
                     </div>
@@ -548,13 +549,13 @@ function BookingForm({ unit, onSave, onClose, editBooking, defaultDate, sources,
                 <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:"10px"}}>
                     <div><label style={lbl}>Booking Status</label>
                         <select style={inp} value={f.status} onChange={e=>set("status",e.target.value)}>
-                            {STATUSES.map(s=><option key={s.id} value={s.id} style={{background:"#1a1a2e"}}>{s.label}</option>)}
+                            {STATUSES.map(s=><option key={s.id} value={s.id} style={{background:"var(--select-bg)"}}>{s.label}</option>)}
                         </select>
                     </div>
                     <div><label style={lbl}>Overflow to Ekant</label>
                         <div style={{display:"flex",alignItems:"center",gap:"8px",height:"38px"}}>
                             <input type="checkbox" id="ov" checked={f.overflow_to==="ekant"} onChange={e=>set("overflow_to",e.target.checked?"ekant":"")} style={{width:"16px",height:"16px",accentColor:"#A78BFA",cursor:"pointer"}}/>
-                            <label htmlFor="ov" style={{color:"rgba(255,255,255,0.5)",fontSize:"11px",fontFamily:"'DM Mono', monospace",cursor:"pointer"}}>Pass to Ekant</label>
+                            <label htmlFor="ov" style={{color:"var(--text-soft)",fontSize:"11px",fontFamily:"'DM Mono', monospace",cursor:"pointer"}}>Pass to Ekant</label>
                         </div>
                     </div>
                 </div>
@@ -564,7 +565,7 @@ function BookingForm({ unit, onSave, onClose, editBooking, defaultDate, sources,
             {err&&<div style={{color:"#FF7B7F",fontSize:"11px",marginTop:"12px",padding:"8px 12px",background:"rgba(255,90,95,0.1)",borderRadius:"6px",border:"1px solid rgba(255,90,95,0.2)"}}>⚠ {err}</div>}
 
             <div style={{display:"flex",gap:"10px",marginTop:"18px"}}>
-                <button onClick={onClose} style={{flex:1,padding:"10px",borderRadius:"8px",border:"1px solid rgba(255,255,255,0.1)",background:"transparent",color:"rgba(255,255,255,0.4)",cursor:"pointer",fontFamily:"'DM Mono', monospace",fontSize:"12px"}}>Cancel</button>
+                <button onClick={onClose} style={{flex:1,padding:"10px",borderRadius:"8px",border:"1px solid var(--border)",background:"transparent",color:"var(--text-muted)",cursor:"pointer",fontFamily:"'DM Mono', monospace",fontSize:"12px"}}>Cancel</button>
                 <button onClick={handleSave} disabled={saving} style={{flex:2,padding:"10px",borderRadius:"8px",border:"none",background:saving?"rgba(110,86,207,0.5)":"linear-gradient(135deg,#6E56CF,#9B7FE8)",color:"#fff",cursor:saving?"not-allowed":"pointer",fontWeight:700,fontFamily:"'DM Mono', monospace",fontSize:"12px",opacity:saving?0.7:1}}>
                     {saving?"Saving…":editBooking?"Update Booking":"Save Booking"}
                 </button>
@@ -599,7 +600,7 @@ function PaymentControls({ booking: b, onUpdate }) {
     const handleMarkPending = () => onUpdate(b.id, "pending", 0);
 
     return (
-        <div style={{borderTop:"1px solid rgba(255,255,255,0.06)",paddingTop:"10px"}}>
+        <div style={{borderTop:"1px solid var(--border)",paddingTop:"10px"}}>
             {mode === "buttons" ? (
                 <>
                     <div style={{display:"flex",gap:"4px",marginBottom:"5px"}}>
@@ -617,14 +618,14 @@ function PaymentControls({ booking: b, onUpdate }) {
                         </button>
                     </div>
                     {src !== "direct" && (
-                        <div style={{color:"rgba(255,255,255,0.2)",fontSize:"9px",fontFamily:"'DM Mono', monospace"}}>
+                        <div style={{color:"var(--text-faint)",fontSize:"9px",fontFamily:"'DM Mono', monospace"}}>
                             Settle at month end via UPI
                         </div>
                     )}
                 </>
             ) : (
                 <div style={{animation:"fadeIn 0.15s ease"}}>
-                    <div style={{color:"rgba(255,255,255,0.4)",fontSize:"9px",fontFamily:"'DM Mono', monospace",marginBottom:"6px"}}>
+                    <div style={{color:"var(--text-muted)",fontSize:"9px",fontFamily:"'DM Mono', monospace",marginBottom:"6px"}}>
                         ADD PARTIAL PAYMENT · Due: {inrFmt(due)}
                     </div>
                     <div style={{display:"flex",gap:"6px"}}>
@@ -637,7 +638,7 @@ function PaymentControls({ booking: b, onUpdate }) {
                             {saving?"…":"Add"}
                         </button>
                         <button onClick={()=>{setMode("buttons");setPartialAmt("");setErr("");}}
-                                style={{padding:"8px 10px",borderRadius:"6px",border:"none",background:"rgba(255,255,255,0.06)",color:"rgba(255,255,255,0.4)",cursor:"pointer",fontSize:"13px"}}>×</button>
+                                style={{padding:"8px 10px",borderRadius:"6px",border:"none",background:"var(--card-bg)",color:"var(--text-muted)",cursor:"pointer",fontSize:"13px"}}>×</button>
                     </div>
                     {err&&<div style={{color:"#FF7B7F",fontSize:"10px",marginTop:"5px",fontFamily:"'DM Mono', monospace"}}>⚠ {err}</div>}
                     {/* Quick presets */}
@@ -648,7 +649,7 @@ function PaymentControls({ booking: b, onUpdate }) {
                                 const remaining = Math.min(amt - paid, due);
                                 if (remaining <= 0) return null;
                                 return <button key={pct} onClick={()=>setPartialAmt(String(remaining))}
-                                               style={{padding:"3px 8px",borderRadius:"5px",border:"1px solid rgba(255,255,255,0.08)",background:"rgba(255,255,255,0.04)",color:"rgba(255,255,255,0.4)",fontFamily:"'DM Mono', monospace",fontSize:"9px",cursor:"pointer"}}>
+                                               style={{padding:"3px 8px",borderRadius:"5px",border:"1px solid var(--card-border)",background:"var(--card-bg)",color:"var(--text-muted)",fontFamily:"'DM Mono', monospace",fontSize:"9px",cursor:"pointer"}}>
                                     {pct}% · {inrFmt(remaining)}
                                 </button>;
                             })}
@@ -691,22 +692,22 @@ function BookingDetail({ booking:b, unit, sources, onClose, onEdit, onDelete, on
                         {nights>1&&<Pill label={`${nights}N`} color="#94A3B8"/>}
                         {b.checkin_date===b.checkout_date&&<Pill label={isHalfDay(b)?"½ Day":"Full Day"} color={isHalfDay(b)?"#F59E0B":"#34D399"}/>}
                     </div>
-                    <div style={{color:"#F0EEF8",fontSize:"18px",fontFamily:"'Playfair Display', serif",fontWeight:700}}>{b.guest_name}</div>
-                    {b.guest_phone&&<div style={{color:"rgba(255,255,255,0.4)",fontSize:"11px",fontFamily:"'DM Mono', monospace",marginTop:"2px"}}>📞 {b.guest_phone}</div>}
-                    <div style={{color:"rgba(255,255,255,0.35)",fontSize:"11px",fontFamily:"'DM Mono', monospace",marginTop:"2px"}}>
+                    <div style={{color:"var(--text)",fontSize:"18px",fontFamily:"'Playfair Display', serif",fontWeight:700}}>{b.guest_name}</div>
+                    {b.guest_phone&&<div style={{color:"var(--text-muted)",fontSize:"11px",fontFamily:"'DM Mono', monospace",marginTop:"2px"}}>📞 {b.guest_phone}</div>}
+                    <div style={{color:"var(--text-muted)",fontSize:"11px",fontFamily:"'DM Mono', monospace",marginTop:"2px"}}>
                         {b.checkin_date}{b.checkout_date!==b.checkin_date?` → ${b.checkout_date}`:""}
                     </div>
                 </div>
-                <button onClick={onClose} style={{background:"rgba(255,255,255,0.06)",border:"none",borderRadius:"8px",color:"rgba(255,255,255,0.5)",cursor:"pointer",fontSize:"18px",width:"32px",height:"32px",display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}>×</button>
+                <button onClick={onClose} style={{background:"var(--card-bg)",border:"none",borderRadius:"8px",color:"var(--text-soft)",cursor:"pointer",fontSize:"18px",width:"32px",height:"32px",display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}>×</button>
             </div>
 
             {/* Status workflow */}
             <div style={{marginBottom:"14px"}}>
-                <div style={{color:"rgba(255,255,255,0.3)",fontSize:"9px",fontFamily:"'DM Mono', monospace",letterSpacing:"0.1em",marginBottom:"6px"}}>BOOKING STATUS</div>
+                <div style={{color:"var(--text-muted)",fontSize:"9px",fontFamily:"'DM Mono', monospace",letterSpacing:"0.1em",marginBottom:"6px"}}>BOOKING STATUS</div>
                 <div style={{display:"flex",gap:"4px",flexWrap:"wrap"}}>
                     {STATUSES.map(s=>(
                         <button key={s.id} onClick={()=>setStatus(s.id)} disabled={updatingStatus||b.status===s.id}
-                                style={{padding:"4px 10px",borderRadius:"6px",border:`1px solid ${b.status===s.id?s.color:"rgba(255,255,255,0.08)"}`,background:b.status===s.id?`${s.color}22`:"transparent",color:b.status===s.id?s.color:"rgba(255,255,255,0.35)",fontFamily:"'DM Mono', monospace",fontSize:"9px",cursor:b.status===s.id?"default":"pointer",fontWeight:b.status===s.id?700:400}}>
+                                style={{padding:"4px 10px",borderRadius:"6px",border:`1px solid ${b.status===s.id?s.color:"rgba(255,255,255,0.08)"}`,background:b.status===s.id?`${s.color}22`:"transparent",color:b.status===s.id?s.color:"var(--text-muted)",fontFamily:"'DM Mono', monospace",fontSize:"9px",cursor:b.status===s.id?"default":"pointer",fontWeight:b.status===s.id?700:400}}>
                             {s.label}
                         </button>
                     ))}
@@ -719,19 +720,19 @@ function BookingDetail({ booking:b, unit, sources, onClose, onEdit, onDelete, on
                     {l:"Check-In",  v:`${b.checkin_date}  ${b.check_in_time||"11:00"}`,  i:"⬆"},
                     {l:"Check-Out", v:`${b.checkout_date} ${b.check_out_time||"19:00"}`, i:"⬇"},
                 ].map(item=>(
-                    <div key={item.l} style={{background:"rgba(255,255,255,0.04)",borderRadius:"8px",padding:"10px 12px",border:"1px solid rgba(255,255,255,0.07)"}}>
-                        <div style={{color:"rgba(255,255,255,0.3)",fontSize:"9px",fontFamily:"'DM Mono', monospace",marginBottom:"3px"}}>{item.i} {item.l.toUpperCase()}</div>
-                        <div style={{color:"#F0EEF8",fontSize:"11px",fontFamily:"'DM Mono', monospace",fontWeight:600}}>{item.v}</div>
+                    <div key={item.l} style={{background:"var(--card-bg)",borderRadius:"8px",padding:"10px 12px",border:"1px solid var(--card-border)"}}>
+                        <div style={{color:"var(--text-muted)",fontSize:"9px",fontFamily:"'DM Mono', monospace",marginBottom:"3px"}}>{item.i} {item.l.toUpperCase()}</div>
+                        <div style={{color:"var(--text)",fontSize:"11px",fontFamily:"'DM Mono', monospace",fontWeight:600}}>{item.v}</div>
                     </div>
                 ))}
             </div>
 
             {/* Financials */}
             <div style={{background:"linear-gradient(135deg,rgba(110,86,207,0.1),rgba(155,127,232,0.06))",borderRadius:"10px",padding:"12px 14px",border:"1px solid rgba(110,86,207,0.2)",marginBottom:"12px"}}>
-                <div style={{color:"rgba(255,255,255,0.3)",fontSize:"9px",fontFamily:"'DM Mono', monospace",letterSpacing:"0.1em",marginBottom:"8px"}}>AMOUNT · {nights} NIGHT{nights>1?"S":""}</div>
+                <div style={{color:"var(--text-muted)",fontSize:"9px",fontFamily:"'DM Mono', monospace",letterSpacing:"0.1em",marginBottom:"8px"}}>AMOUNT · {nights} NIGHT{nights>1?"S":""}</div>
                 <div style={{display:"grid",gap:"5px",marginBottom:"10px"}}>
                     {[
-                        ["Total", inrFmt(b.total_amount), "#F0EEF8"],
+                        ["Total", inrFmt(b.total_amount), "var(--text)"],
                         ...(showPayment ? [
                             ["Paid", inrFmt(b.paid_amount), "#34D399"],
                             ...(due > 0 ? [["Due", inrFmt(due), "#F59E0B"]] : []),
@@ -740,12 +741,12 @@ function BookingDetail({ booking:b, unit, sources, onClose, onEdit, onDelete, on
                         ]),
                     ].map(([k,v,c])=>(
                         <div key={k} style={{display:"flex",justifyContent:"space-between"}}>
-                            <span style={{color:"rgba(255,255,255,0.4)",fontSize:"11px",fontFamily:"'DM Mono', monospace"}}>{k}</span>
+                            <span style={{color:"var(--text-muted)",fontSize:"11px",fontFamily:"'DM Mono', monospace"}}>{k}</span>
                             <span style={{color:c,fontSize:"12px",fontFamily:"'Playfair Display', serif",fontWeight:700}}>{v}</span>
                         </div>
                     ))}
                 </div>
-                {b.payment_method&&<div style={{color:"rgba(255,255,255,0.25)",fontSize:"9px",fontFamily:"'DM Mono', monospace",marginBottom:"8px"}}>via {b.payment_method.replace("_"," ").toUpperCase()}</div>}
+                {b.payment_method&&<div style={{color:"var(--text-faint)",fontSize:"9px",fontFamily:"'DM Mono', monospace",marginBottom:"8px"}}>via {b.payment_method.replace("_"," ").toUpperCase()}</div>}
 
                 {/* Payment controls — Direct/Custom sources only */}
                 {showPayment && <PaymentControls booking={b} onUpdate={onPaymentUpdate}/>}
@@ -986,18 +987,18 @@ function Dashboard({ units, user }) {
                     {units.map(u=>BBtn(u.id,u.name))}
                 </div>
                 <div style={{display:"flex",alignItems:"center",gap:"6px",marginLeft:"auto"}}>
-                    <button onClick={()=>{if(month===0){setMonth(11);setYear(y=>y-1);}else setMonth(m=>m-1);}} style={{background:"rgba(255,255,255,0.06)",border:"none",borderRadius:"6px",color:"rgba(255,255,255,0.5)",cursor:"pointer",width:"26px",height:"26px",fontSize:"14px"}}>‹</button>
-                    <span style={{color:"#F0EEF8",fontFamily:"'DM Mono', monospace",fontSize:"12px",minWidth:"130px",textAlign:"center"}}>{MONTHS[month]} {year}</span>
-                    <button onClick={()=>{if(month===11){setMonth(0);setYear(y=>y+1);}else setMonth(m=>m+1);}} style={{background:"rgba(255,255,255,0.06)",border:"none",borderRadius:"6px",color:"rgba(255,255,255,0.5)",cursor:"pointer",width:"26px",height:"26px",fontSize:"14px"}}>›</button>
+                    <button onClick={()=>{if(month===0){setMonth(11);setYear(y=>y-1);}else setMonth(m=>m-1);}} style={{background:"var(--card-bg)",border:"none",borderRadius:"6px",color:"var(--text-soft)",cursor:"pointer",width:"26px",height:"26px",fontSize:"14px"}}>‹</button>
+                    <span style={{color:"var(--text)",fontFamily:"'DM Mono', monospace",fontSize:"12px",minWidth:"130px",textAlign:"center"}}>{MONTHS[month]} {year}</span>
+                    <button onClick={()=>{if(month===11){setMonth(0);setYear(y=>y+1);}else setMonth(m=>m+1);}} style={{background:"var(--card-bg)",border:"none",borderRadius:"6px",color:"var(--text-soft)",cursor:"pointer",width:"26px",height:"26px",fontSize:"14px"}}>›</button>
                 </div>
             </div>
 
             {/* ── Source filter + download row ── */}
-            <div style={{display:"flex",gap:"6px",flexWrap:"wrap",alignItems:"center",marginBottom:"18px",padding:"10px 12px",background:"rgba(255,255,255,0.02)",borderRadius:"10px",border:"1px solid rgba(255,255,255,0.06)"}}>
-                <span style={{color:"rgba(255,255,255,0.3)",fontSize:"9px",fontFamily:"'DM Mono', monospace",letterSpacing:"0.1em",textTransform:"uppercase",whiteSpace:"nowrap"}}>Filter by type:</span>
-                <button onClick={()=>setSrcFilter("all")} style={{padding:"4px 10px",borderRadius:"16px",border:`1px solid ${srcFilter==="all"?"rgba(255,255,255,0.4)":"rgba(255,255,255,0.08)"}`,background:srcFilter==="all"?"rgba(255,255,255,0.08)":"transparent",color:srcFilter==="all"?"#F0EEF8":"rgba(255,255,255,0.35)",fontFamily:"'DM Mono', monospace",fontSize:"9px",cursor:"pointer"}}>All</button>
+            <div style={{display:"flex",gap:"6px",flexWrap:"wrap",alignItems:"center",marginBottom:"18px",padding:"10px 12px",background:"var(--header-bg)",borderRadius:"10px",border:"1px solid var(--card-border)"}}>
+                <span style={{color:"var(--text-muted)",fontSize:"9px",fontFamily:"'DM Mono', monospace",letterSpacing:"0.1em",textTransform:"uppercase",whiteSpace:"nowrap"}}>Filter by type:</span>
+                <button onClick={()=>setSrcFilter("all")} style={{padding:"4px 10px",borderRadius:"16px",border:`1px solid ${srcFilter==="all"?"rgba(255,255,255,0.4)":"rgba(255,255,255,0.08)"}`,background:srcFilter==="all"?"rgba(255,255,255,0.08)":"transparent",color:srcFilter==="all"?"var(--text)":"rgba(255,255,255,0.35)",fontFamily:"'DM Mono', monospace",fontSize:"9px",cursor:"pointer"}}>All</button>
                 {allSources.map(src=>(
-                    <button key={src.id} onClick={()=>setSrcFilter(src.id)} style={{padding:"4px 10px",borderRadius:"16px",border:`1px solid ${srcFilter===src.id?src.color:"rgba(255,255,255,0.08)"}`,background:srcFilter===src.id?`${src.color}22`:"transparent",color:srcFilter===src.id?src.color:"rgba(255,255,255,0.35)",fontFamily:"'DM Mono', monospace",fontSize:"9px",cursor:"pointer",display:"flex",alignItems:"center",gap:"4px"}}>
+                    <button key={src.id} onClick={()=>setSrcFilter(src.id)} style={{padding:"4px 10px",borderRadius:"16px",border:`1px solid ${srcFilter===src.id?src.color:"rgba(255,255,255,0.08)"}`,background:srcFilter===src.id?`${src.color}22`:"transparent",color:srcFilter===src.id?src.color:"var(--text-muted)",fontFamily:"'DM Mono', monospace",fontSize:"9px",cursor:"pointer",display:"flex",alignItems:"center",gap:"4px"}}>
                         <span style={{fontSize:"10px"}}>{src.icon}</span>{src.label}
                     </button>
                 ))}
@@ -1013,7 +1014,7 @@ function Dashboard({ units, user }) {
                 </div>
             </div>
 
-            {loading?<div style={{color:"rgba(255,255,255,0.3)",fontFamily:"'DM Mono', monospace",fontSize:"12px",textAlign:"center",padding:"40px"}}>Loading…</div>:<>
+            {loading?<div style={{color:"var(--text-muted)",fontFamily:"'DM Mono', monospace",fontSize:"12px",textAlign:"center",padding:"40px"}}>Loading…</div>:<>
 
                 {/* ── KPIs ── */}
                 <div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:"8px",marginBottom:"10px"}}>
@@ -1024,7 +1025,7 @@ function Dashboard({ units, user }) {
                         {l:"Occupancy",    v:`${stats.occupancyPct}%`,        a:"#6EE7B7"},
                     ].map(s=>(
                         <div key={s.l} style={card}>
-                            <div style={{color:"rgba(255,255,255,0.3)",fontSize:"8px",letterSpacing:"0.1em",textTransform:"uppercase",marginBottom:"3px"}}>{s.l}</div>
+                            <div style={{color:"var(--text-muted)",fontSize:"8px",letterSpacing:"0.1em",textTransform:"uppercase",marginBottom:"3px"}}>{s.l}</div>
                             <div style={{color:s.a,fontSize:"16px",fontFamily:"'Playfair Display', serif",fontWeight:700}}>{s.v}</div>
                         </div>
                     ))}
@@ -1037,7 +1038,7 @@ function Dashboard({ units, user }) {
                         {l:"Pending Pay",  v:(stats.byStatus.pending||0)+(stats.byStatus.partial||0), a:"#F59E0B"},
                     ].map(s=>(
                         <div key={s.l} style={card}>
-                            <div style={{color:"rgba(255,255,255,0.3)",fontSize:"8px",letterSpacing:"0.1em",textTransform:"uppercase",marginBottom:"3px"}}>{s.l}</div>
+                            <div style={{color:"var(--text-muted)",fontSize:"8px",letterSpacing:"0.1em",textTransform:"uppercase",marginBottom:"3px"}}>{s.l}</div>
                             <div style={{color:s.a,fontSize:"16px",fontFamily:"'Playfair Display', serif",fontWeight:700}}>{s.v}</div>
                         </div>
                     ))}
@@ -1046,8 +1047,8 @@ function Dashboard({ units, user }) {
                 {/* ── Source breakdown (clickable to filter) ── */}
                 <div style={{...card,marginBottom:"16px"}}>
                     <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:"12px"}}>
-                        <div style={{color:"rgba(255,255,255,0.4)",fontSize:"9px",letterSpacing:"0.1em",textTransform:"uppercase",fontFamily:"'DM Mono', monospace"}}>Bookings by Source</div>
-                        {srcFilter!=="all"&&<button onClick={()=>setSrcFilter("all")} style={{color:"rgba(255,255,255,0.3)",fontSize:"9px",fontFamily:"'DM Mono', monospace",background:"none",border:"none",cursor:"pointer"}}>✕ Clear filter</button>}
+                        <div style={{color:"var(--text-muted)",fontSize:"9px",letterSpacing:"0.1em",textTransform:"uppercase",fontFamily:"'DM Mono', monospace"}}>Bookings by Source</div>
+                        {srcFilter!=="all"&&<button onClick={()=>setSrcFilter("all")} style={{color:"var(--text-muted)",fontSize:"9px",fontFamily:"'DM Mono', monospace",background:"none",border:"none",cursor:"pointer"}}>✕ Clear filter</button>}
                     </div>
                     <div style={{display:"grid",gridTemplateColumns:`repeat(${Math.min(allSources.length||1,6)},1fr)`,gap:"6px"}}>
                         {allSources.map(src=>{
@@ -1058,8 +1059,8 @@ function Dashboard({ units, user }) {
                                         style={{background:isActive?`${src.color}22`:`${src.color}0d`,border:`${isActive?2:1}px solid ${isActive?src.color:src.color+"33"}`,borderRadius:"10px",padding:"10px",textAlign:"center",cursor:"pointer",transition:"all 0.15s"}}>
                                     <div style={{fontSize:"16px",marginBottom:"3px"}}>{src.icon}</div>
                                     <div style={{color:src.color,fontSize:"10px",fontFamily:"'DM Mono', monospace",fontWeight:600,marginBottom:"5px"}}>{src.label}</div>
-                                    <div style={{color:"#F0EEF8",fontSize:"18px",fontFamily:"'Playfair Display', serif",fontWeight:700}}>{s.count}</div>
-                                    <div style={{color:"rgba(255,255,255,0.3)",fontSize:"9px",fontFamily:"'DM Mono', monospace"}}>{inrFmt(s.revenue)}</div>
+                                    <div style={{color:"var(--text)",fontSize:"18px",fontFamily:"'Playfair Display', serif",fontWeight:700}}>{s.count}</div>
+                                    <div style={{color:"var(--text-muted)",fontSize:"9px",fontFamily:"'DM Mono', monospace"}}>{inrFmt(s.revenue)}</div>
                                 </button>
                             );
                         })}
@@ -1068,14 +1069,14 @@ function Dashboard({ units, user }) {
 
                 {/* ── Payment status ── */}
                 <div style={{...card,marginBottom:"16px"}}>
-                    <div style={{color:"rgba(255,255,255,0.4)",fontSize:"9px",letterSpacing:"0.1em",textTransform:"uppercase",marginBottom:"12px",fontFamily:"'DM Mono', monospace"}}>Payment Status</div>
+                    <div style={{color:"var(--text-muted)",fontSize:"9px",letterSpacing:"0.1em",textTransform:"uppercase",marginBottom:"12px",fontFamily:"'DM Mono', monospace"}}>Payment Status</div>
                     <div style={{display:"flex",gap:"8px",flexWrap:"wrap"}}>
                         {PAY_STATUSES.map(ps=>{
                             const bks=filteredData.filter(b=>b.payment_status===ps.id&&b.status!=="cancelled");
                             return <div key={ps.id} style={{background:`${ps.color}11`,border:`1px solid ${ps.color}33`,borderRadius:"8px",padding:"8px 12px",flex:1,minWidth:"90px"}}>
                                 <div style={{color:ps.color,fontSize:"10px",fontFamily:"'DM Mono', monospace",fontWeight:600}}>{ps.label}</div>
-                                <div style={{color:"#F0EEF8",fontSize:"18px",fontFamily:"'Playfair Display', serif",fontWeight:700}}>{bks.length}</div>
-                                <div style={{color:"rgba(255,255,255,0.3)",fontSize:"9px",fontFamily:"'DM Mono', monospace"}}>{inrFmt(bks.reduce((s,b)=>s+Number(b.total_amount||0),0))}</div>
+                                <div style={{color:"var(--text)",fontSize:"18px",fontFamily:"'Playfair Display', serif",fontWeight:700}}>{bks.length}</div>
+                                <div style={{color:"var(--text-muted)",fontSize:"9px",fontFamily:"'DM Mono', monospace"}}>{inrFmt(bks.reduce((s,b)=>s+Number(b.total_amount||0),0))}</div>
                             </div>;
                         })}
                     </div>
@@ -1083,7 +1084,7 @@ function Dashboard({ units, user }) {
 
                 {/* ── Daily revenue chart ── */}
                 <div style={{...card,marginBottom:"16px"}}>
-                    <div style={{color:"rgba(255,255,255,0.4)",fontSize:"9px",letterSpacing:"0.1em",textTransform:"uppercase",marginBottom:"12px",fontFamily:"'DM Mono', monospace"}}>
+                    <div style={{color:"var(--text-muted)",fontSize:"9px",letterSpacing:"0.1em",textTransform:"uppercase",marginBottom:"12px",fontFamily:"'DM Mono', monospace"}}>
                         Daily Revenue — {MONTHS[month]} {year}{srcFilter!=="all"?` · ${allSources.find(s=>s.id===srcFilter)?.label||srcFilter}`:""}
                     </div>
                     <div style={{display:"flex",alignItems:"flex-end",gap:"2px",height:"100px"}}>
@@ -1092,7 +1093,7 @@ function Dashboard({ units, user }) {
                             const d=parseInt(date.split("-")[2]);
                             return <div key={date} style={{flex:1,display:"flex",flexDirection:"column",alignItems:"center",gap:"3px"}} title={`${date}: ${inrFmt(rev)}`}>
                                 <div style={{width:"100%",background:rev>0?"linear-gradient(180deg,#9B7FE8,#6E56CF)":"rgba(255,255,255,0.04)",height:`${h}%`,borderRadius:"2px 2px 0 0",minHeight:rev>0?"3px":"0",transition:"height 0.4s"}}/>
-                                <div style={{color:"rgba(255,255,255,0.15)",fontSize:"7px",fontFamily:"'DM Mono', monospace"}}>{d}</div>
+                                <div style={{color:"var(--text-faint)",fontSize:"7px",fontFamily:"'DM Mono', monospace"}}>{d}</div>
                             </div>;
                         })}
                     </div>
@@ -1101,7 +1102,7 @@ function Dashboard({ units, user }) {
                 {/* ── Bookings table ── */}
                 <div style={card}>
                     <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:"12px"}}>
-                        <div style={{color:"rgba(255,255,255,0.4)",fontSize:"9px",letterSpacing:"0.1em",textTransform:"uppercase",fontFamily:"'DM Mono', monospace"}}>
+                        <div style={{color:"var(--text-muted)",fontSize:"9px",letterSpacing:"0.1em",textTransform:"uppercase",fontFamily:"'DM Mono', monospace"}}>
                             {filteredData.length} Booking{filteredData.length!==1?"s":""} — {MONTHS[month]} {year}
                             {srcFilter!=="all"&&<span style={{color:"rgba(110,86,207,0.8)",marginLeft:"8px"}}>· {allSources.find(s=>s.id===srcFilter)?.label}</span>}
                         </div>
@@ -1111,11 +1112,11 @@ function Dashboard({ units, user }) {
                         </div>
                     </div>
                     {filteredData.length===0
-                        ?<div style={{color:"rgba(255,255,255,0.2)",fontFamily:"'DM Mono', monospace",fontSize:"12px",textAlign:"center",padding:"20px"}}>No bookings found</div>
+                        ?<div style={{color:"var(--text-faint)",fontFamily:"'DM Mono', monospace",fontSize:"12px",textAlign:"center",padding:"20px"}}>No bookings found</div>
                         :<div style={{overflowX:"auto"}}>
                             <table style={{width:"100%",borderCollapse:"collapse",fontFamily:"'DM Mono', monospace",fontSize:"10px"}}>
                                 <thead><tr>{["Check-In","Check-Out","Unit","Guest","Phone","Nights","Source","Status","Payment","Total","Paid","Due"].map(h=>(
-                                    <th key={h} style={{textAlign:"left",color:"rgba(255,255,255,0.3)",padding:"5px 8px",borderBottom:"1px solid rgba(255,255,255,0.06)",whiteSpace:"nowrap",letterSpacing:"0.06em"}}>{h}</th>
+                                    <th key={h} style={{textAlign:"left",color:"var(--text-muted)",padding:"5px 8px",borderBottom:"1px solid var(--header-border)",whiteSpace:"nowrap",letterSpacing:"0.06em"}}>{h}</th>
                                 ))}</tr></thead>
                                 <tbody>
                                 {tableRows.map(b=>{
@@ -1124,12 +1125,12 @@ function Dashboard({ units, user }) {
                                     const total=Number(b.total_amount||0),paid=Number(b.paid_amount||0),due=Math.max(0,total-paid);
                                     return <tr key={b.id} style={{borderBottom:"1px solid rgba(255,255,255,0.03)",opacity:b.status==="cancelled"?0.5:1}}
                                                onMouseEnter={e=>e.currentTarget.style.background="rgba(255,255,255,0.02)"} onMouseLeave={e=>e.currentTarget.style.background="transparent"}>
-                                        <td style={{padding:"6px 8px",color:"rgba(255,255,255,0.5)",whiteSpace:"nowrap"}}>{b.checkin_date}</td>
-                                        <td style={{padding:"6px 8px",color:"rgba(255,255,255,0.35)",whiteSpace:"nowrap"}}>{b.checkout_date}</td>
-                                        <td style={{padding:"6px 8px",color:"rgba(255,255,255,0.4)",whiteSpace:"nowrap"}}>{units.find(u=>u.id===b.unit_id)?.name||b.unit_id}</td>
-                                        <td style={{padding:"6px 8px",color:"#F0EEF8",whiteSpace:"nowrap"}}>{b.guest_name}</td>
-                                        <td style={{padding:"6px 8px",color:"rgba(255,255,255,0.35)",whiteSpace:"nowrap"}}>{b.guest_phone||"—"}</td>
-                                        <td style={{padding:"6px 8px",color:"rgba(255,255,255,0.4)",textAlign:"center"}}>{b.nights||1}</td>
+                                        <td style={{padding:"6px 8px",color:"var(--text-soft)",whiteSpace:"nowrap"}}>{b.checkin_date}</td>
+                                        <td style={{padding:"6px 8px",color:"var(--text-muted)",whiteSpace:"nowrap"}}>{b.checkout_date}</td>
+                                        <td style={{padding:"6px 8px",color:"var(--text-muted)",whiteSpace:"nowrap"}}>{units.find(u=>u.id===b.unit_id)?.name||b.unit_id}</td>
+                                        <td style={{padding:"6px 8px",color:"var(--text)",whiteSpace:"nowrap"}}>{b.guest_name}</td>
+                                        <td style={{padding:"6px 8px",color:"var(--text-muted)",whiteSpace:"nowrap"}}>{b.guest_phone||"—"}</td>
+                                        <td style={{padding:"6px 8px",color:"var(--text-muted)",textAlign:"center"}}>{b.nights||1}</td>
                                         <td style={{padding:"6px 8px"}}><span style={{background:`${src.color}22`,color:src.color,borderRadius:"4px",padding:"1px 5px",fontSize:"9px",fontWeight:600}}>{src.icon} {src.label}</span></td>
                                         <td style={{padding:"6px 8px"}}><span style={{background:`${st.color}22`,color:st.color,borderRadius:"4px",padding:"1px 5px",fontSize:"9px"}}>{st.label}</span></td>
                                         <td style={{padding:"6px 8px"}}><span style={{background:`${ps.color}22`,color:ps.color,borderRadius:"4px",padding:"1px 5px",fontSize:"9px"}}>{ps.label}</span></td>
@@ -1140,7 +1141,7 @@ function Dashboard({ units, user }) {
                                 })}
                                 </tbody>
                                 <tfoot><tr style={{background:"rgba(110,86,207,0.08)",borderTop:"1px solid rgba(110,86,207,0.2)"}}>
-                                    <td colSpan={5} style={{padding:"7px 8px",color:"rgba(255,255,255,0.4)",fontFamily:"'DM Mono', monospace",fontSize:"10px",fontWeight:700}}>TOTAL ({tableRows.length})</td>
+                                    <td colSpan={5} style={{padding:"7px 8px",color:"var(--text-muted)",fontFamily:"'DM Mono', monospace",fontSize:"10px",fontWeight:700}}>TOTAL ({tableRows.length})</td>
                                     <td style={{padding:"7px 8px",color:"#60A5FA",textAlign:"center",fontWeight:700}}>{stats.totalNights}</td>
                                     <td colSpan={3}></td>
                                     <td style={{padding:"7px 8px",color:"#C4B5FD",fontWeight:700,whiteSpace:"nowrap"}}>{inrFmt(stats.totalRev)}</td>
@@ -1373,10 +1374,10 @@ function ManageSourcesPanel({ units, selUnit, onSelectUnit, customSources, setCu
 
     return (
         <div style={{ padding:"16px 0" }}>
-            <div style={{ color:"rgba(255,255,255,0.3)", fontSize:"9px", fontFamily:"'DM Mono', monospace", letterSpacing:"0.15em", textTransform:"uppercase", marginBottom:"4px" }}>
+            <div style={{ color:"var(--text-muted)", fontSize:"9px", fontFamily:"'DM Mono', monospace", letterSpacing:"0.15em", textTransform:"uppercase", marginBottom:"4px" }}>
                 Manage Booking Types
             </div>
-            <div style={{ color:"rgba(255,255,255,0.35)", fontSize:"10px", fontFamily:"'DM Mono', monospace", marginBottom:"16px", lineHeight:1.6 }}>
+            <div style={{ color:"var(--text-muted)", fontSize:"10px", fontFamily:"'DM Mono', monospace", marginBottom:"16px", lineHeight:1.6 }}>
                 Direct, Airbnb, and GoIbibo/MMT are available on every unit. Add custom booking types (like agents, brokers, or recurring contacts) that are specific to one unit.
             </div>
 
@@ -1429,7 +1430,7 @@ function ManageSourcesPanel({ units, selUnit, onSelectUnit, customSources, setCu
                     {/* Live preview */}
                     {name.trim() && (
                         <div style={{ display:"flex", alignItems:"center", gap:"8px" }}>
-                            <span style={{ color:"rgba(255,255,255,0.3)", fontSize:"9px", fontFamily:"'DM Mono', monospace", letterSpacing:"0.08em" }}>PREVIEW:</span>
+                            <span style={{ color:"var(--text-muted)", fontSize:"9px", fontFamily:"'DM Mono', monospace", letterSpacing:"0.08em" }}>PREVIEW:</span>
                             <span style={{ background:`${color}22`, border:`1px solid ${color}55`, borderRadius:"6px", padding:"4px 10px", color, fontFamily:"'DM Mono', monospace", fontSize:"11px", fontWeight:600, display:"inline-flex", alignItems:"center", gap:"5px" }}>
                 <span>{icon}</span>{name.trim()}
               </span>
@@ -1444,21 +1445,21 @@ function ManageSourcesPanel({ units, selUnit, onSelectUnit, customSources, setCu
 
             {/* Existing custom sources list */}
             <div style={card}>
-                <div style={{ color:"rgba(255,255,255,0.4)", fontSize:"9px", letterSpacing:"0.1em", textTransform:"uppercase", marginBottom:"12px", fontFamily:"'DM Mono', monospace" }}>
+                <div style={{ color:"var(--text-muted)", fontSize:"9px", letterSpacing:"0.1em", textTransform:"uppercase", marginBottom:"12px", fontFamily:"'DM Mono', monospace" }}>
                     Custom Types for {selUnit?.name || "—"}
                 </div>
                 {customSources.length === 0 ? (
-                    <div style={{ color:"rgba(255,255,255,0.2)", fontFamily:"'DM Mono', monospace", fontSize:"12px", textAlign:"center", padding:"16px" }}>
+                    <div style={{ color:"var(--text-faint)", fontFamily:"'DM Mono', monospace", fontSize:"12px", textAlign:"center", padding:"16px" }}>
                         No custom booking types yet for this unit. Add one above.
                     </div>
                 ) : (
                     <div style={{ display:"grid", gap:"6px" }}>
                         {customSources.map(c => (
-                            <div key={c.id} style={{ display:"flex", alignItems:"center", gap:"10px", padding:"8px 12px", background:"rgba(255,255,255,0.02)", borderRadius:"8px", border:`1px solid ${c.color||"#94A3B8"}33` }}>
+                            <div key={c.id} style={{ display:"flex", alignItems:"center", gap:"10px", padding:"8px 12px", background:"var(--header-bg)", borderRadius:"8px", border:`1px solid ${c.color||"#94A3B8"}33` }}>
                                 <span style={{ fontSize:"16px" }}>{c.icon||"👤"}</span>
                                 <div style={{ flex:1 }}>
                                     <div style={{ color: c.color||"#94A3B8", fontSize:"12px", fontFamily:"'DM Mono', monospace", fontWeight:600 }}>{c.label}</div>
-                                    <div style={{ color:"rgba(255,255,255,0.25)", fontSize:"9px", fontFamily:"'DM Mono', monospace" }}>key: {c.source_key}</div>
+                                    <div style={{ color:"var(--text-faint)", fontSize:"9px", fontFamily:"'DM Mono', monospace" }}>key: {c.source_key}</div>
                                 </div>
                                 <button onClick={() => handleDelete(c.id, c.label)} disabled={deletingId===c.id} style={{ padding:"5px 10px", borderRadius:"6px", border:"1px solid rgba(255,90,95,0.3)", background:"rgba(255,90,95,0.08)", color:"#FF7B7F", cursor:"pointer", fontFamily:"'DM Mono', monospace", fontSize:"10px" }}>
                                     {deletingId===c.id ? "…" : "Remove"}
@@ -1484,28 +1485,28 @@ function AdminPanel({ units }) {
     const unit=units.find(u=>u.id===selUnit);
     return (
         <div style={{padding:"16px 0"}}>
-            <div style={{color:"rgba(255,255,255,0.3)",fontSize:"9px",fontFamily:"'DM Mono', monospace",letterSpacing:"0.15em",textTransform:"uppercase",marginBottom:"14px"}}>Admin — User Access Control</div>
+            <div style={{color:"var(--text-muted)",fontSize:"9px",fontFamily:"'DM Mono', monospace",letterSpacing:"0.15em",textTransform:"uppercase",marginBottom:"14px"}}>Admin — User Access Control</div>
             <div style={{display:"flex",gap:"6px",flexWrap:"wrap",marginBottom:"16px"}}>
                 {units.map(u=><button key={u.id} onClick={()=>setSelUnit(u.id)} style={{padding:"5px 14px",borderRadius:"20px",border:`1px solid ${selUnit===u.id?"rgba(110,86,207,0.7)":"rgba(255,255,255,0.1)"}`,background:selUnit===u.id?"rgba(110,86,207,0.2)":"transparent",color:selUnit===u.id?"#C4B5FD":"rgba(255,255,255,0.4)",fontFamily:"'DM Mono', monospace",fontSize:"11px",cursor:"pointer"}}>{u.name}</button>)}
             </div>
             {msg&&<div style={{color:"#74C69D",fontSize:"11px",fontFamily:"'DM Mono', monospace",marginBottom:"12px",padding:"8px 12px",background:"rgba(39,201,63,0.08)",borderRadius:"6px",border:"1px solid rgba(39,201,63,0.2)"}}>{msg}</div>}
             <div style={card}>
-                <div style={{color:"rgba(255,255,255,0.4)",fontSize:"11px",fontFamily:"'DM Mono', monospace",marginBottom:"12px"}}>Who can see <span style={{color:"#C4B5FD"}}>{unit?.name}</span>?</div>
+                <div style={{color:"var(--text-muted)",fontSize:"11px",fontFamily:"'DM Mono', monospace",marginBottom:"12px"}}>Who can see <span style={{color:"#C4B5FD"}}>{unit?.name}</span>?</div>
                 <div style={{display:"grid",gap:"6px"}}>
                     {users.filter(u=>u.role!=="admin").map(u=>{
                         const has=grantedIds.has(u.id);
-                        return <div key={u.id} style={{display:"flex",alignItems:"center",gap:"10px",padding:"8px 12px",background:"rgba(255,255,255,0.02)",borderRadius:"8px",border:`1px solid ${has?"rgba(110,86,207,0.2)":"rgba(255,255,255,0.05)"}`}}>
+                        return <div key={u.id} style={{display:"flex",alignItems:"center",gap:"10px",padding:"8px 12px",background:"var(--header-bg)",borderRadius:"8px",border:`1px solid ${has?"rgba(110,86,207,0.2)":"rgba(255,255,255,0.05)"}`}}>
                             {u.avatar?<img src={u.avatar} alt="" style={{width:"28px",height:"28px",borderRadius:"50%",flexShrink:0,objectFit:"cover"}}/>:<div style={{width:"28px",height:"28px",borderRadius:"50%",background:"rgba(110,86,207,0.3)",display:"flex",alignItems:"center",justifyContent:"center",color:"#C4B5FD",fontSize:"12px",flexShrink:0}}>{(u.name||u.email)[0].toUpperCase()}</div>}
                             <div style={{flex:1,minWidth:0}}>
-                                <div style={{color:"#F0EEF8",fontSize:"11px",fontFamily:"'DM Mono', monospace",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{u.name}</div>
-                                <div style={{color:"rgba(255,255,255,0.3)",fontSize:"9px",fontFamily:"'DM Mono', monospace",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{u.email}</div>
+                                <div style={{color:"var(--text)",fontSize:"11px",fontFamily:"'DM Mono', monospace",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{u.name}</div>
+                                <div style={{color:"var(--text-muted)",fontSize:"9px",fontFamily:"'DM Mono', monospace",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{u.email}</div>
                             </div>
                             <button onClick={()=>has?revoke(u.id):grant(u.id)} disabled={loading} style={{padding:"4px 10px",borderRadius:"6px",border:"none",background:has?"rgba(255,90,95,0.15)":"rgba(110,86,207,0.2)",color:has?"#FF7B7F":"#C4B5FD",cursor:"pointer",fontFamily:"'DM Mono', monospace",fontSize:"9px",fontWeight:600,whiteSpace:"nowrap"}}>
                                 {has?"Revoke":"Grant"}
                             </button>
                         </div>;
                     })}
-                    {users.filter(u=>u.role!=="admin").length===0&&<div style={{color:"rgba(255,255,255,0.2)",fontFamily:"'DM Mono', monospace",fontSize:"12px",textAlign:"center",padding:"20px"}}>No other users registered yet</div>}
+                    {users.filter(u=>u.role!=="admin").length===0&&<div style={{color:"var(--text-faint)",fontFamily:"'DM Mono', monospace",fontSize:"12px",textAlign:"center",padding:"20px"}}>No other users registered yet</div>}
                 </div>
             </div>
         </div>
@@ -1547,7 +1548,7 @@ function AddUnitForm({ onAdd, onClose }) {
                 </div>
                 {err && <div style={{ color:"#FF7B7F", fontSize:"11px", padding:"8px 12px", background:"rgba(255,90,95,0.1)", borderRadius:"6px", border:"1px solid rgba(255,90,95,0.2)" }}>⚠ {err}</div>}
                 <div style={{ display:"flex", gap:"8px" }}>
-                    <button onClick={onClose} style={{ flex:1, padding:"9px", borderRadius:"8px", border:"1px solid rgba(255,255,255,0.1)", background:"transparent", color:"rgba(255,255,255,0.4)", cursor:"pointer", fontFamily:"'DM Mono', monospace", fontSize:"11px" }}>Cancel</button>
+                    <button onClick={onClose} style={{ flex:1, padding:"9px", borderRadius:"8px", border:"1px solid var(--border)", background:"transparent", color:"var(--text-muted)", cursor:"pointer", fontFamily:"'DM Mono', monospace", fontSize:"11px" }}>Cancel</button>
                     <button onClick={handleAdd} disabled={s || !n.trim()} style={{ flex:2, padding:"9px", borderRadius:"8px", border:"none", background:"linear-gradient(135deg,#6E56CF,#9B7FE8)", color:"#fff", cursor:"pointer", fontWeight:700, fontFamily:"'DM Mono', monospace", fontSize:"11px", opacity:(s||!n.trim())?0.5:1 }}>
                         {s ? "Adding…" : "Add Unit"}
                     </button>
@@ -1568,6 +1569,10 @@ export default function App() {
     const [modal,setModal]=useState(null); // {type, ...}
     const [activeTab,setActiveTab]=useState("calendar");
     const [showProfile,setShowProfile]=useState(false);
+    const [theme,setTheme]=useState(()=>localStorage.getItem("gcbm_theme")||"dark");
+    const [mobileMenuOpen,setMobileMenuOpen]=useState(false);
+
+    const toggleTheme=()=>setTheme(t=>{const n=t==="dark"?"light":"dark";localStorage.setItem("gcbm_theme",n);return n;});
 
     // Combined sources for the currently selected unit (base + custom)
     const sources = useMemo(() => combineSources(customSources), [customSources]);
@@ -1700,7 +1705,7 @@ export default function App() {
 
     const handleLogout=()=>{setToken(null);setUser(null);setBookings({});setUnits([]);setSelUnit(null);};
 
-    if(!authChecked) return <div style={{minHeight:"100vh",background:"#0A0A12",display:"flex",alignItems:"center",justifyContent:"center",color:"rgba(255,255,255,0.3)",fontFamily:"'DM Mono', monospace",fontSize:"12px",letterSpacing:"0.1em"}}>Loading…</div>;
+    if(!authChecked) return <div style={{minHeight:"100vh",background:"var(--bg)",display:"flex",alignItems:"center",justifyContent:"center",color:"var(--text-muted)",fontFamily:"'DM Mono', monospace",fontSize:"12px",letterSpacing:"0.1em"}}>Loading…</div>;
     if(!user) return <LoginPage onLogin={u=>setUser(u)}/>;
 
     const mPfx=`${year}-${String(month+1).padStart(2,"0")}`;
@@ -1725,59 +1730,252 @@ export default function App() {
     const totalDue=mBks.reduce((s,b)=>s+Math.max(0,Number(b.total_amount||0)-Number(b.paid_amount||0)),0);
 
     const tabBtn=(t,l,i)=>(
-        <button onClick={()=>setActiveTab(t)} style={{display:"flex",alignItems:"center",gap:"5px",padding:"7px 14px",borderRadius:"8px",border:"none",background:activeTab===t?"rgba(110,86,207,0.25)":"transparent",color:activeTab===t?"#C4B5FD":"rgba(255,255,255,0.4)",cursor:"pointer",fontFamily:"'DM Mono', monospace",fontSize:"10px",letterSpacing:"0.06em",whiteSpace:"nowrap"}}>
+        <button onClick={()=>setActiveTab(t)} style={{display:"flex",alignItems:"center",gap:"5px",padding:"7px 14px",borderRadius:"8px",border:"none",background:activeTab===t?"rgba(110,86,207,0.25)":"transparent",color:activeTab===t?"#C4B5FD":"var(--text-muted)",cursor:"pointer",fontFamily:"'DM Mono', monospace",fontSize:"10px",letterSpacing:"0.06em",whiteSpace:"nowrap"}}>
             <span>{i}</span>{l}
         </button>
     );
 
     return (
-        <div style={{minHeight:"100vh",background:"#0A0A12",fontFamily:"'DM Mono', monospace",overflowX:"hidden"}}>
+        <div className={`theme-${theme}`} style={{minHeight:"100vh",background:"var(--bg)",fontFamily:"'DM Mono', monospace",overflowX:"hidden",color:"var(--text)"}}>
             <style>{`
         @import url('https://fonts.googleapis.com/css2?family=Playfair+Display:wght@700;900&family=DM+Mono:wght@400;500;600&display=swap');
-        @keyframes fadeIn{from{opacity:0}to{opacity:1}} @keyframes slideUp{from{opacity:0;transform:translateY(24px) scale(0.97)}to{opacity:1;transform:translateY(0) scale(1)}} @keyframes pulse{0%,100%{opacity:1}50%{opacity:0.3}}
-        *{box-sizing:border-box} input[type="time"]::-webkit-calendar-picker-indicator{filter:invert(0.6)} input[type="date"]::-webkit-calendar-picker-indicator{filter:invert(0.6)}
-        textarea{font-family:'DM Mono',monospace!important} select{cursor:pointer} ::-webkit-scrollbar{width:3px} ::-webkit-scrollbar-thumb{background:rgba(255,255,255,0.1);border-radius:2px}
+
+        /* ── DARK THEME (default) ── */
+        .theme-dark {
+          --bg:            #0A0A12;
+          --surface:       #12121E;
+          --card-bg:       rgba(255,255,255,0.03);
+          --card-border:   rgba(255,255,255,0.07);
+          --inp-bg:        rgba(255,255,255,0.05);
+          --border:        rgba(255,255,255,0.1);
+          --header-bg:     rgba(255,255,255,0.02);
+          --header-border: rgba(255,255,255,0.06);
+          --unit-bar-bg:   rgba(110,86,207,0.04);
+          --unit-bar-border:rgba(110,86,207,0.1);
+          --text:          #F0EEF8;
+          --text-soft:     rgba(255,255,255,0.5);
+          --text-muted:    rgba(255,255,255,0.4);
+          --text-faint:    rgba(255,255,255,0.15);
+          --modal-bg:      #12121E;
+          --modal-border:  rgba(255,255,255,0.08);
+          --scrollbar:     rgba(255,255,255,0.1);
+          --cal-empty:     rgba(0,0,0,0.1);
+          --cal-today:     rgba(110,86,207,0.07);
+          --cal-today-hover:rgba(110,86,207,0.11);
+          --cal-hover:     rgba(255,255,255,0.03);
+          --cal-booked:    rgba(255,255,255,0.01);
+          --fin-card-bg:   linear-gradient(135deg,rgba(110,86,207,0.1),rgba(155,127,232,0.06));
+          --fin-card-border:rgba(110,86,207,0.2);
+          --tab-hover-bg:  rgba(255,255,255,0.08);
+          --err-bg:        rgba(255,90,95,0.1);
+          --err-border:    rgba(255,90,95,0.2);
+          --select-bg:     #1a1a2e;
+          color-scheme: dark;
+        }
+
+        /* ── LIGHT THEME ── */
+        .theme-light {
+          --bg:            #F5F4F0;
+          --surface:       #FFFFFF;
+          --card-bg:       rgba(255,255,255,0.9);
+          --card-border:   rgba(0,0,0,0.08);
+          --inp-bg:        rgba(0,0,0,0.04);
+          --border:        rgba(0,0,0,0.12);
+          --header-bg:     rgba(255,255,255,0.95);
+          --header-border: rgba(0,0,0,0.08);
+          --unit-bar-bg:   rgba(110,86,207,0.04);
+          --unit-bar-border:rgba(110,86,207,0.15);
+          --text:          #1C1C2E;
+          --text-soft:     rgba(0,0,0,0.55);
+          --text-muted:    rgba(0,0,0,0.45);
+          --text-faint:    rgba(0,0,0,0.25);
+          --modal-bg:      #FFFFFF;
+          --modal-border:  rgba(0,0,0,0.1);
+          --scrollbar:     rgba(0,0,0,0.15);
+          --cal-empty:     rgba(0,0,0,0.03);
+          --cal-today:     rgba(110,86,207,0.08);
+          --cal-today-hover:rgba(110,86,207,0.12);
+          --cal-hover:     rgba(0,0,0,0.02);
+          --cal-booked:    rgba(110,86,207,0.02);
+          --fin-card-bg:   linear-gradient(135deg,rgba(110,86,207,0.07),rgba(155,127,232,0.04));
+          --fin-card-border:rgba(110,86,207,0.15);
+          --tab-hover-bg:  rgba(0,0,0,0.04);
+          --err-bg:        rgba(255,90,95,0.08);
+          --err-border:    rgba(255,90,95,0.2);
+          --select-bg:     #F5F4F0;
+          color-scheme: light;
+        }
+
+        /* ── Base resets ── */
+        *{box-sizing:border-box}
+
+        /* Calendar picker icons */
+        .theme-dark input[type="time"]::-webkit-calendar-picker-indicator,
+        .theme-dark input[type="date"]::-webkit-calendar-picker-indicator{filter:invert(0.6)}
+        .theme-light input[type="time"]::-webkit-calendar-picker-indicator,
+        .theme-light input[type="date"]::-webkit-calendar-picker-indicator{filter:none;opacity:0.5}
+
+        /* Select options */
+        .theme-dark select option{background:#1a1a2e}
+        .theme-light select option{background:#ffffff;color:#1C1C2E}
+
+        textarea{font-family:'DM Mono',monospace!important}
+        select{cursor:pointer}
+        ::-webkit-scrollbar{width:3px}
+        ::-webkit-scrollbar-thumb{background:var(--scrollbar);border-radius:2px}
+
+        /* ── Animations ── */
+        @keyframes fadeIn{from{opacity:0}to{opacity:1}}
+        @keyframes slideUp{from{opacity:0;transform:translateY(24px) scale(0.97)}to{opacity:1;transform:translateY(0) scale(1)}}
+        @keyframes pulse{0%,100%{opacity:1}50%{opacity:0.3}}
+
+        /* ── Mobile nav hamburger ── */
+        .mobile-nav-toggle{display:none;background:none;border:none;cursor:pointer;padding:6px;color:var(--text-soft);font-size:18px}
+        .nav-tabs{display:flex;align-items:center;gap:6px;flex-wrap:wrap}
+        .nav-right{display:flex;align-items:center;gap:8px}
+
+        /* ── Calendar grid mobile fix ── */
+        .cal-cell{min-height:72px;padding:4px 3px 3px}
+
+        /* ── Mobile drawer ── */
+        .mobile-drawer{
+          display:none;position:fixed;inset:0;z-index:200;
+          background:var(--modal-bg);flex-direction:column;padding:16px;
+          animation:fadeIn 0.15s;
+        }
+        .mobile-drawer.open{display:flex}
+
+        /* ── Responsive ── */
+        @media(max-width:768px){
+          .mobile-nav-toggle{display:block}
+          .nav-tabs{display:none}
+          .nav-right .status-badge{display:none}
+
+          /* Calendar cells smaller */
+          .cal-cell{min-height:54px;padding:2px 1px 2px}
+
+          /* Stats grid: 2 cols on mobile */
+          .stats-grid-5{grid-template-columns:repeat(3,1fr)!important}
+          .stats-grid-4{grid-template-columns:repeat(2,1fr)!important}
+          .stats-grid-2{grid-template-columns:1fr!important}
+
+          /* Report KPIs: 2 cols */
+          .kpi-grid-4{grid-template-columns:repeat(2,1fr)!important}
+
+          /* Booking form wide modal */
+          .modal-wide{max-width:100%!important;margin:0!important;border-radius:16px 16px 0 0!important;position:fixed!important;bottom:0!important;top:auto!important;max-height:92vh!important;overflow-y:auto}
+
+          /* Regular modals */
+          .modal-box{max-width:100%!important;margin:0!important;border-radius:16px 16px 0 0!important;position:fixed!important;bottom:0!important;top:auto!important;max-height:92vh!important}
+
+          /* Modal overlay on mobile — align to bottom */
+          .modal-overlay{align-items:flex-end!important;padding:0!important}
+
+          /* Source grid: 3 cols on mobile */
+          .src-grid{grid-template-columns:repeat(3,1fr)!important}
+
+          /* Reports table: scroll */
+          .reports-table-wrap{overflow-x:auto;-webkit-overflow-scrolling:touch}
+
+          /* Unit bar padding */
+          .unit-bar-inner{padding:0 8px!important}
+
+          /* Header compact */
+          .app-header{padding:8px 12px!important}
+          .app-header-title{font-size:14px!important}
+
+          /* Profile modal full screen */
+          .profile-modal{max-width:100%!important}
+
+          /* Preset row wraps */
+          .preset-row{flex-wrap:wrap!important}
+
+          /* Source breakdown */
+          .src-breakdown-grid{grid-template-columns:repeat(3,1fr)!important}
+
+          /* Pay status grid */
+          .pay-status-flex{flex-wrap:wrap!important}
+          .pay-status-flex>*{min-width:120px!important}
+        }
+
+        @media(max-width:480px){
+          .stats-grid-5{grid-template-columns:repeat(2,1fr)!important}
+          .src-breakdown-grid{grid-template-columns:repeat(2,1fr)!important}
+          .cal-cell{min-height:44px}
+        }
+
+        @media print{body{padding:10px}}
       `}</style>
 
             {/* Header */}
-            <div style={{background:"rgba(255,255,255,0.02)",borderBottom:"1px solid rgba(255,255,255,0.06)",padding:"10px 20px",display:"flex",alignItems:"center",justifyContent:"space-between",flexWrap:"wrap",gap:"8px"}}>
-                <div style={{display:"flex",alignItems:"center",gap:"10px"}}>
+            <div className="app-header" style={{background:"var(--header-bg)",borderBottom:`1px solid var(--header-border)`,padding:"10px 20px",display:"flex",alignItems:"center",justifyContent:"space-between",gap:"8px",position:"sticky",top:0,zIndex:50,backdropFilter:"blur(12px)"}}>
+                <div style={{display:"flex",alignItems:"center",gap:"10px",flexShrink:0}}>
                     <span style={{fontSize:"20px"}}>🏢</span>
                     <div>
-                        <div style={{color:"rgba(255,255,255,0.3)",fontSize:"8px",letterSpacing:"0.18em",textTransform:"uppercase"}}>Property Manager</div>
-                        <div style={{color:"#F0EEF8",fontSize:"16px",fontFamily:"'Playfair Display', serif",fontWeight:900}}>Booking Manager</div>
+                        <div style={{color:"var(--text-muted)",fontSize:"8px",letterSpacing:"0.18em",textTransform:"uppercase"}}>Property Manager</div>
+                        <div className="app-header-title" style={{color:"var(--text)",fontSize:"16px",fontFamily:"'Playfair Display', serif",fontWeight:900}}>Booking Manager</div>
                     </div>
                 </div>
-                <div style={{display:"flex",alignItems:"center",gap:"6px",flexWrap:"wrap"}}>
+                {/* Desktop nav tabs */}
+                <div className="nav-tabs">
                     {tabBtn("calendar","Calendar","📅")}
                     {tabBtn("dashboard","Reports","📊")}
                     {tabBtn("sync","Sync","🔄")}
                     {tabBtn("sources","Types","🏷")}
                     {user.role==="admin"&&tabBtn("admin","Admin","⚙")}
                 </div>
-                <div style={{display:"flex",alignItems:"center",gap:"8px"}}>
-                    <StatusBadge status={status}/>
-                    <button onClick={()=>setShowProfile(true)} style={{display:"flex",alignItems:"center",gap:"7px",background:"rgba(255,255,255,0.04)",border:"1px solid rgba(255,255,255,0.08)",borderRadius:"20px",padding:"3px 10px 3px 3px",cursor:"pointer"}}
-                            onMouseEnter={e=>e.currentTarget.style.background="rgba(255,255,255,0.08)"} onMouseLeave={e=>e.currentTarget.style.background="rgba(255,255,255,0.04)"}>
+                <div className="nav-right" style={{display:"flex",alignItems:"center",gap:"6px",flexShrink:0}}>
+                    <div className="status-badge"><StatusBadge status={status}/></div>
+                    {/* Theme toggle */}
+                    <button onClick={toggleTheme} title={`Switch to ${theme==="dark"?"light":"dark"} mode`} style={{background:"var(--card-bg)",border:`1px solid var(--card-border)`,borderRadius:"8px",color:"var(--text-soft)",cursor:"pointer",padding:"5px 9px",fontSize:"14px",display:"flex",alignItems:"center",gap:"4px",fontFamily:"'DM Mono', monospace"}}
+                            onMouseEnter={e=>e.currentTarget.style.background="var(--tab-hover-bg)"} onMouseLeave={e=>e.currentTarget.style.background="var(--card-bg)"}>
+                        {theme==="dark"?"☀ Light":"🌙 Dark"}
+                    </button>
+                    <button onClick={()=>setShowProfile(true)} style={{display:"flex",alignItems:"center",gap:"7px",background:"var(--card-bg)",border:`1px solid var(--card-border)`,borderRadius:"20px",padding:"3px 10px 3px 3px",cursor:"pointer"}}
+                            onMouseEnter={e=>e.currentTarget.style.background="var(--tab-hover-bg)"} onMouseLeave={e=>e.currentTarget.style.background="var(--card-bg)"}>
                         {user.avatar?<img src={user.avatar} alt="" style={{width:"22px",height:"22px",borderRadius:"50%",objectFit:"cover",border:"2px solid rgba(110,86,207,0.5)"}}/>
                             :<div style={{width:"22px",height:"22px",borderRadius:"50%",background:"linear-gradient(135deg,#6E56CF,#9B7FE8)",display:"flex",alignItems:"center",justifyContent:"center",fontSize:"10px",fontWeight:700,color:"#fff"}}>{(user.name||user.email||"?")[0].toUpperCase()}</div>}
-                        <span style={{color:"rgba(255,255,255,0.5)",fontSize:"10px",fontFamily:"'DM Mono', monospace",maxWidth:"100px",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{user.name||user.email}</span>
+                        <span style={{color:"var(--text-soft)",fontSize:"10px",fontFamily:"'DM Mono', monospace",maxWidth:"80px",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{user.name||user.email}</span>
                         {user.role==="admin"&&<span style={{background:"rgba(110,86,207,0.3)",color:"#C4B5FD",borderRadius:"4px",padding:"1px 5px",fontSize:"8px"}}>ADMIN</span>}
                     </button>
-                    <button onClick={handleLogout} style={{background:"rgba(255,90,95,0.1)",border:"1px solid rgba(255,90,95,0.2)",borderRadius:"8px",color:"#FF7B7F",cursor:"pointer",padding:"4px 9px",fontSize:"10px",fontFamily:"'DM Mono', monospace"}}>Sign out</button>
+                    {/* Hamburger for mobile */}
+                    <button className="mobile-nav-toggle" onClick={()=>setMobileMenuOpen(true)} aria-label="Menu">☰</button>
+                    <button onClick={handleLogout} style={{background:"rgba(255,90,95,0.1)",border:"1px solid rgba(255,90,95,0.2)",borderRadius:"8px",color:"#FF7B7F",cursor:"pointer",padding:"4px 9px",fontSize:"10px",fontFamily:"'DM Mono', monospace",whiteSpace:"nowrap"}}>Sign out</button>
+                </div>
+            </div>
+
+            {/* Mobile drawer menu */}
+            <div className={`mobile-drawer${mobileMenuOpen?" open":""}`} style={{background:"var(--modal-bg)"}}>
+                <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:"20px"}}>
+                    <div style={{color:"var(--text)",fontSize:"16px",fontFamily:"'Playfair Display', serif",fontWeight:700}}>Menu</div>
+                    <button onClick={()=>setMobileMenuOpen(false)} style={{background:"var(--card-bg)",border:`1px solid var(--card-border)`,borderRadius:"8px",color:"var(--text-soft)",cursor:"pointer",padding:"6px 10px",fontSize:"16px"}}>✕</button>
+                </div>
+                {[["calendar","📅 Calendar"],["dashboard","📊 Reports"],["sync","🔄 Sync"],["sources","🏷 Types"],...(user.role==="admin"?[["admin","⚙ Admin"]]:[])].map(([t,l])=>(
+                    <button key={t} onClick={()=>{setActiveTab(t);setMobileMenuOpen(false);}} style={{display:"block",width:"100%",textAlign:"left",padding:"14px 16px",background:activeTab===t?"rgba(110,86,207,0.15)":"transparent",border:"none",borderRadius:"10px",color:activeTab===t?"#C4B5FD":"var(--text-soft)",fontFamily:"'DM Mono', monospace",fontSize:"14px",cursor:"pointer",marginBottom:"4px"}}>{l}</button>
+                ))}
+                <div style={{borderTop:`1px solid var(--border)`,marginTop:"16px",paddingTop:"16px",display:"flex",flexDirection:"column",gap:"8px"}}>
+                    <button onClick={()=>{toggleTheme();}} style={{padding:"12px 16px",background:"var(--card-bg)",border:`1px solid var(--card-border)`,borderRadius:"10px",color:"var(--text-soft)",cursor:"pointer",fontFamily:"'DM Mono', monospace",fontSize:"13px",textAlign:"left"}}>
+                        {theme==="dark"?"☀ Switch to Light Mode":"🌙 Switch to Dark Mode"}
+                    </button>
+                    <button onClick={()=>{setMobileMenuOpen(false);setShowProfile(true);}} style={{padding:"12px 16px",background:"var(--card-bg)",border:`1px solid var(--card-border)`,borderRadius:"10px",color:"var(--text-soft)",cursor:"pointer",fontFamily:"'DM Mono', monospace",fontSize:"13px",textAlign:"left"}}>
+                        👤 My Profile
+                    </button>
+                    <button onClick={()=>{setMobileMenuOpen(false);handleLogout();}} style={{padding:"12px 16px",background:"rgba(255,90,95,0.08)",border:"1px solid rgba(255,90,95,0.2)",borderRadius:"10px",color:"#FF7B7F",cursor:"pointer",fontFamily:"'DM Mono', monospace",fontSize:"13px",textAlign:"left"}}>
+                        Sign Out
+                    </button>
                 </div>
             </div>
 
             {/* Unit bar */}
-            <div style={{background:"rgba(110,86,207,0.04)",borderBottom:"1px solid rgba(110,86,207,0.1)",padding:"8px 20px",display:"flex",alignItems:"center",gap:"6px",flexWrap:"wrap",overflowX:"auto"}}>
-                <span style={{color:"rgba(255,255,255,0.2)",fontSize:"9px",letterSpacing:"0.12em",textTransform:"uppercase",whiteSpace:"nowrap"}}>Unit:</span>
+            <div style={{background:"var(--unit-bar-bg)",borderBottom:`1px solid var(--unit-bar-border)`,padding:"8px 20px",display:"flex",alignItems:"center",gap:"6px",flexWrap:"wrap",overflowX:"auto"}}>
+                <span style={{color:"var(--text-faint)",fontSize:"9px",letterSpacing:"0.12em",textTransform:"uppercase",whiteSpace:"nowrap"}}>Unit:</span>
                 {units.map(u=>(
-                    <button key={u.id} onClick={()=>setSelUnit(u)} style={{padding:"4px 12px",borderRadius:"20px",border:`1px solid ${selUnit?.id===u.id?"rgba(110,86,207,0.7)":"rgba(255,255,255,0.08)"}`,background:selUnit?.id===u.id?"rgba(110,86,207,0.2)":"transparent",color:selUnit?.id===u.id?"#C4B5FD":"rgba(255,255,255,0.4)",fontFamily:"'DM Mono', monospace",fontSize:"10px",cursor:"pointer",whiteSpace:"nowrap",fontWeight:selUnit?.id===u.id?600:400}}>
-                        {u.name}{u.location&&<span style={{color:"rgba(255,255,255,0.2)",fontSize:"8px",marginLeft:"3px"}}>· {u.location.split(",")[0]}</span>}
+                    <button key={u.id} onClick={()=>setSelUnit(u)} style={{padding:"4px 12px",borderRadius:"20px",border:`1px solid ${selUnit?.id===u.id?"rgba(110,86,207,0.7)":"var(--border)"}`,background:selUnit?.id===u.id?"rgba(110,86,207,0.2)":"transparent",color:selUnit?.id===u.id?"#C4B5FD":"var(--text-muted)",fontFamily:"'DM Mono', monospace",fontSize:"10px",cursor:"pointer",whiteSpace:"nowrap",fontWeight:selUnit?.id===u.id?600:400}}>
+                        {u.name}{u.location&&<span style={{color:"var(--text-faint)",fontSize:"8px",marginLeft:"3px"}}>· {u.location.split(",")[0]}</span>}
                     </button>
                 ))}
-                <button onClick={()=>setModal({type:"addUnit"})} style={{padding:"4px 10px",borderRadius:"20px",border:"1px dashed rgba(255,255,255,0.1)",background:"transparent",color:"rgba(255,255,255,0.25)",fontFamily:"'DM Mono', monospace",fontSize:"10px",cursor:"pointer",whiteSpace:"nowrap"}}
-                        onMouseEnter={e=>{e.currentTarget.style.borderColor="rgba(110,86,207,0.4)";e.currentTarget.style.color="#C4B5FD";}} onMouseLeave={e=>{e.currentTarget.style.borderColor="rgba(255,255,255,0.1)";e.currentTarget.style.color="rgba(255,255,255,0.25)";}}>
+                <button onClick={()=>setModal({type:"addUnit"})} style={{padding:"4px 10px",borderRadius:"20px",border:`1px dashed var(--border)`,background:"transparent",color:"var(--text-faint)",fontFamily:"'DM Mono', monospace",fontSize:"10px",cursor:"pointer",whiteSpace:"nowrap"}}
+                        onMouseEnter={e=>{e.currentTarget.style.borderColor="rgba(110,86,207,0.4)";e.currentTarget.style.color="#C4B5FD";}} onMouseLeave={e=>{e.currentTarget.style.borderColor="var(--border)";e.currentTarget.style.color="var(--text-faint)";}}>
                     + Add Unit
                 </button>
             </div>
@@ -1792,8 +1990,8 @@ export default function App() {
                 {activeTab==="admin"&&user.role==="admin"&&<AdminPanel units={units}/>}
 
                 {activeTab==="calendar"&&<>
-                    {/* Stats row */}
-                    <div style={{display:"grid",gridTemplateColumns:"repeat(5,1fr)",gap:"8px",marginBottom:"16px"}}>
+                    {/* Stats */}
+                    <div className="stats-grid-5" style={{display:"grid",gridTemplateColumns:"repeat(5,1fr)",gap:"8px",marginBottom:"16px"}}>
                         {[
                             {l:"Bookings",   v:mBks.length,                                   a:"#C4B5FD"},
                             {l:"Revenue",    v:inrFmt(totalRev),                               a:"#86EFAC"},
@@ -1813,8 +2011,8 @@ export default function App() {
                                     return `${Math.round(occ/dim*100)}%`;
                                 })(), a:"#FCA5A5"},
                         ].map(s=>(
-                            <div key={s.l} style={{background:"rgba(255,255,255,0.03)",border:"1px solid rgba(255,255,255,0.06)",borderRadius:"10px",padding:"10px 12px"}}>
-                                <div style={{color:"rgba(255,255,255,0.3)",fontSize:"7px",letterSpacing:"0.12em",textTransform:"uppercase",marginBottom:"3px"}}>{s.l}</div>
+                            <div key={s.l} style={{background:"var(--card-bg)",border:"1px solid var(--card-border)",borderRadius:"10px",padding:"10px 12px"}}>
+                                <div style={{color:"var(--text-muted)",fontSize:"7px",letterSpacing:"0.12em",textTransform:"uppercase",marginBottom:"3px"}}>{s.l}</div>
                                 <div style={{color:s.a,fontSize:"15px",fontFamily:"'Playfair Display', serif",fontWeight:700}}>{s.v}</div>
                             </div>
                         ))}
@@ -1833,19 +2031,19 @@ export default function App() {
                     </div>
 
                     {/* Calendar */}
-                    <div style={{background:"rgba(255,255,255,0.025)",border:"1px solid rgba(255,255,255,0.07)",borderRadius:"14px 14px 0 0",padding:"14px 20px",display:"flex",alignItems:"center",justifyContent:"space-between"}}>
-                        <button onClick={prevM} style={{background:"rgba(255,255,255,0.06)",border:"none",borderRadius:"7px",color:"rgba(255,255,255,0.5)",cursor:"pointer",width:"30px",height:"30px",fontSize:"15px",display:"flex",alignItems:"center",justifyContent:"center"}} onMouseEnter={e=>e.currentTarget.style.background="rgba(255,255,255,0.1)"} onMouseLeave={e=>e.currentTarget.style.background="rgba(255,255,255,0.06)"}>‹</button>
+                    <div style={{background:"rgba(255,255,255,0.025)",border:"1px solid var(--card-border)",borderRadius:"14px 14px 0 0",padding:"14px 20px",display:"flex",alignItems:"center",justifyContent:"space-between"}}>
+                        <button onClick={prevM} style={{background:"var(--card-bg)",border:"none",borderRadius:"7px",color:"var(--text-soft)",cursor:"pointer",width:"30px",height:"30px",fontSize:"15px",display:"flex",alignItems:"center",justifyContent:"center"}} onMouseEnter={e=>e.currentTarget.style.background="rgba(255,255,255,0.1)"} onMouseLeave={e=>e.currentTarget.style.background="rgba(255,255,255,0.06)"}>‹</button>
                         <div style={{textAlign:"center"}}>
-                            <div style={{color:"#F0EEF8",fontSize:"18px",fontFamily:"'Playfair Display', serif",fontWeight:900}}>{MONTHS[month]}</div>
-                            <div style={{color:"rgba(255,255,255,0.25)",fontSize:"10px",letterSpacing:"0.12em"}}>{year} · {selUnit?.name||""}</div>
+                            <div style={{color:"var(--text)",fontSize:"18px",fontFamily:"'Playfair Display', serif",fontWeight:900}}>{MONTHS[month]}</div>
+                            <div style={{color:"var(--text-faint)",fontSize:"10px",letterSpacing:"0.12em"}}>{year} · {selUnit?.name||""}</div>
                         </div>
-                        <button onClick={nextM} style={{background:"rgba(255,255,255,0.06)",border:"none",borderRadius:"7px",color:"rgba(255,255,255,0.5)",cursor:"pointer",width:"30px",height:"30px",fontSize:"15px",display:"flex",alignItems:"center",justifyContent:"center"}} onMouseEnter={e=>e.currentTarget.style.background="rgba(255,255,255,0.1)"} onMouseLeave={e=>e.currentTarget.style.background="rgba(255,255,255,0.06)"}>›</button>
+                        <button onClick={nextM} style={{background:"var(--card-bg)",border:"none",borderRadius:"7px",color:"var(--text-soft)",cursor:"pointer",width:"30px",height:"30px",fontSize:"15px",display:"flex",alignItems:"center",justifyContent:"center"}} onMouseEnter={e=>e.currentTarget.style.background="rgba(255,255,255,0.1)"} onMouseLeave={e=>e.currentTarget.style.background="rgba(255,255,255,0.06)"}>›</button>
                     </div>
-                    <div style={{display:"grid",gridTemplateColumns:"repeat(7,1fr)",background:"rgba(255,255,255,0.02)",borderLeft:"1px solid rgba(255,255,255,0.07)",borderRight:"1px solid rgba(255,255,255,0.07)"}}>
+                    <div style={{display:"grid",gridTemplateColumns:"repeat(7,1fr)",background:"var(--header-bg)",borderLeft:"1px solid rgba(255,255,255,0.07)",borderRight:"1px solid rgba(255,255,255,0.07)"}}>
                         {DAYS.map(d=><div key={d} style={{padding:"8px 0",textAlign:"center",color:d==="Sun"||d==="Sat"?"rgba(155,127,232,0.5)":"rgba(255,255,255,0.25)",fontSize:"8px",letterSpacing:"0.1em",textTransform:"uppercase",borderBottom:"1px solid rgba(255,255,255,0.05)"}}>{d}</div>)}
                     </div>
-                    <div style={{display:"grid",gridTemplateColumns:"repeat(7,1fr)",border:"1px solid rgba(255,255,255,0.07)",borderTop:"none",borderRadius:"0 0 14px 14px",overflow:"hidden",background:"rgba(255,255,255,0.01)"}}>
-                        {Array.from({length:firstDay}).map((_,i)=><div key={`e${i}`} style={{minHeight:"88px",borderRight:"1px solid rgba(255,255,255,0.04)",borderBottom:"1px solid rgba(255,255,255,0.04)",background:"rgba(0,0,0,0.1)"}}/>)}
+                    <div style={{display:"grid",gridTemplateColumns:"repeat(7,1fr)",border:"1px solid var(--card-border)",borderTop:"none",borderRadius:"0 0 14px 14px",overflow:"hidden",background:"rgba(255,255,255,0.01)"}}>
+                        {Array.from({length:firstDay}).map((_,i)=><div key={`e${i}`} style={{minHeight:"88px",borderRight:"1px solid rgba(255,255,255,0.04)",borderBottom:"1px solid rgba(255,255,255,0.04)",background:"var(--cal-empty)"}}/>)}
                         {Array.from({length:dim},(_,i)=>i+1).map(day=>{
                             const dateStr=fmtDate(year,month,day);
                             const dayBks=getDay(dateStr);
@@ -1857,7 +2055,7 @@ export default function App() {
                             const occDot=occ>=1?"#FF5A5F":occ>=0.5?"#F59E0B":null;
                             const pendingPay=activeBks.some(b=>b.payment_status==="pending");
                             return (
-                                <div key={day} onClick={()=>setModal({type:"add",date:dateStr})} style={{minHeight:"88px",padding:"6px 4px 4px",borderRight:"1px solid rgba(255,255,255,0.04)",borderBottom:"1px solid rgba(255,255,255,0.04)",cursor:"pointer",background:isToday?"rgba(110,86,207,0.07)":activeBks.length>0?"rgba(255,255,255,0.01)":"transparent",transition:"background 0.15s",position:"relative"}}
+                                <div key={day} onClick={()=>setModal({type:"add",date:dateStr})} style={{minHeight:"88px",padding:"6px 4px 4px",borderRight:"1px solid rgba(255,255,255,0.04)",borderBottom:"1px solid rgba(255,255,255,0.04)",cursor:"pointer",background:isToday?"var(--cal-today)":activeBks.length>0?"var(--cal-booked)":"transparent",transition:"background 0.15s",position:"relative"}}
                                      onMouseEnter={e=>e.currentTarget.style.background=isToday?"rgba(110,86,207,0.11)":"rgba(255,255,255,0.03)"}
                                      onMouseLeave={e=>e.currentTarget.style.background=isToday?"rgba(110,86,207,0.07)":activeBks.length>0?"rgba(255,255,255,0.01)":"transparent"}>
                                     <div style={{width:"20px",height:"20px",borderRadius:"50%",display:"flex",alignItems:"center",justifyContent:"center",background:isToday?"linear-gradient(135deg,#6E56CF,#9B7FE8)":"transparent",color:isToday?"#fff":isWE?"rgba(155,127,232,0.6)":"rgba(255,255,255,0.4)",fontSize:"10px",fontWeight:isToday?700:400,marginBottom:"3px",boxShadow:isToday?"0 2px 8px rgba(110,86,207,0.5)":"none"}}>{day}</div>
@@ -1872,10 +2070,10 @@ export default function App() {
 
                     {/* Legend */}
                     <div style={{display:"flex",gap:"10px",marginTop:"12px",flexWrap:"wrap",justifyContent:"center"}}>
-                        {sources.map(s=><div key={s.id} style={{display:"flex",alignItems:"center",gap:"4px",color:"rgba(255,255,255,0.3)",fontSize:"8px"}}><div style={{width:"10px",height:"6px",borderRadius:"2px",background:s.color}}/>{s.icon} {s.label}</div>)}
-                        <div style={{display:"flex",alignItems:"center",gap:"4px",color:"rgba(255,255,255,0.3)",fontSize:"8px"}}><div style={{width:"5px",height:"5px",borderRadius:"50%",background:"#FF5A5F"}}/>Full</div>
-                        <div style={{display:"flex",alignItems:"center",gap:"4px",color:"rgba(255,255,255,0.3)",fontSize:"8px"}}><div style={{width:"5px",height:"5px",borderRadius:"50%",background:"#F59E0B"}}/>Half</div>
-                        <div style={{display:"flex",alignItems:"center",gap:"4px",color:"rgba(255,255,255,0.3)",fontSize:"8px"}}><span>💰</span>Payment pending</div>
+                        {sources.map(s=><div key={s.id} style={{display:"flex",alignItems:"center",gap:"4px",color:"var(--text-muted)",fontSize:"8px"}}><div style={{width:"10px",height:"6px",borderRadius:"2px",background:s.color}}/>{s.icon} {s.label}</div>)}
+                        <div style={{display:"flex",alignItems:"center",gap:"4px",color:"var(--text-muted)",fontSize:"8px"}}><div style={{width:"5px",height:"5px",borderRadius:"50%",background:"#FF5A5F"}}/>Full</div>
+                        <div style={{display:"flex",alignItems:"center",gap:"4px",color:"var(--text-muted)",fontSize:"8px"}}><div style={{width:"5px",height:"5px",borderRadius:"50%",background:"#F59E0B"}}/>Half</div>
+                        <div style={{display:"flex",alignItems:"center",gap:"4px",color:"var(--text-muted)",fontSize:"8px"}}><span>💰</span>Payment pending</div>
                     </div>
                 </>}
             </div>
@@ -1896,6 +2094,28 @@ export default function App() {
             <Modal isOpen={modal?.type==="edit"} onClose={()=>setModal(null)} wide>
                 {modal?.type==="edit"&&selUnit&&<BookingForm unit={selUnit} sources={sources} onAddSource={handleAddSource} onSave={handleSave} onClose={()=>setModal(null)} editBooking={modal.booking}/>}
             </Modal>
+
+            {/* Mobile bottom tab bar */}
+            <style>{`
+        .mobile-tab-bar{display:none}
+        @media(max-width:768px){
+          .mobile-tab-bar{
+            display:flex;position:fixed;bottom:0;left:0;right:0;z-index:90;
+            background:var(--modal-bg);border-top:1px solid var(--border);
+            padding:4px 0 env(safe-area-inset-bottom,4px);
+          }
+          .main-content{padding-bottom:60px}
+        }
+      `}</style>
+            <div className="mobile-tab-bar">
+                {[["calendar","📅","Cal"],["dashboard","📊","Rep"],["sync","🔄","Sync"],["sources","🏷","Types"],...(user.role==="admin"?[["admin","⚙","Admin"]]:[])]
+                    .map(([t,i,l])=>(
+                        <button key={t} onClick={()=>setActiveTab(t)} style={{flex:1,display:"flex",flexDirection:"column",alignItems:"center",gap:"2px",padding:"6px 0",border:"none",background:"transparent",color:activeTab===t?"#C4B5FD":"var(--text-faint)",cursor:"pointer",fontFamily:"'DM Mono', monospace",fontSize:"8px",letterSpacing:"0.06em",position:"relative"}}>
+                            <span style={{fontSize:"18px"}}>{i}</span>{l}
+                            {activeTab===t&&<div style={{position:"absolute",bottom:0,left:"50%",transform:"translateX(-50%)",width:"4px",height:"4px",borderRadius:"50%",background:"#6E56CF"}}/>}
+                        </button>
+                    ))}
+            </div>
         </div>
     );
 }
